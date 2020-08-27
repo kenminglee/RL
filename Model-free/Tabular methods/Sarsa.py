@@ -51,10 +51,10 @@ if __name__ == "__main__":
     print("Observation space: ", env.observation_space, env.env.nS)
     
     # epsilon decay rate of 0.9, which happens every 3000 episodes
-    # agent = sarsa_agent([i for i in range(env.env.nA)], epsilon_decay_rate=0.9, epsilon_decay_every_n_episode=3000)
+    agent = sarsa_agent([i for i in range(env.env.nA)], epsilon_decay_rate=0.9, epsilon_decay_every_n_episode=3000)
     
     # no epsilon decay over time
-    agent = sarsa_agent([i for i in range(env.env.nA)])
+    # agent = sarsa_agent([i for i in range(env.env.nA)])
 
     run_experiment(env, agent, num_eps=30000, render_env=False)
 
