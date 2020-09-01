@@ -43,23 +43,16 @@ class reinforce_agent(base_agent):
         return self.choose_action(s_)
 
     def perform_learning_iter(self):
-        states, actions, rewards = self.split_obs()
+        states, actions, rewards = zip(*self.obs)
         discounted_rewards = self.convert_to_discounted_reward(rewards)
-        loss = []
         self.optimizer.zero_grad()
-        for step in range(len(states)):
-            state = torch.tensor(states[step]).to(device=self.device)
-            action_taken = torch.tensor(actions[step]).to(device=self.device)
-            m = Categorical(logits=self.pgn(state))
-            loss = -m.log_prob(action_taken)*discounted_rewards[step]
-            loss.backward()
+        states = torch.tensor(states, dtype=torch.double, device=self.device)
+        actions = torch.tensor(actions, device=self.device)
+        discounted_rewards = torch.tensor(discounted_rewards, device=self.device)
+        m = Categorical(logits=self.pgn(states))
+        loss = torch.sum(-m.log_prob(actions)*discounted_rewards)
+        loss.backward()
         self.optimizer.step()
-
-    def split_obs(self):
-        states = [i[0] for i in self.obs]
-        actions = [i[1] for i in self.obs]
-        rewards = [i[2] for i in self.obs]
-        return states, actions, rewards
 
     def convert_to_discounted_reward(self, rewards):
         cumulative_reward = [rewards[-1]]
