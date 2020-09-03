@@ -13,18 +13,24 @@ from torchvision import transforms
 
 
 class DQN(nn.Module):
-    def __init__(self, input_size, n_actions):
+    def __init__(self, n_actions):
         super(DQN, self).__init__()
-        self.conv1 = nn.Conv2d(3, 6, 5)
+        # IMPORTANT!!! these values are hardcoded such that input size must be [4, 1, 90, 75]
+        self.conv1 = nn.Conv2d(1, 6, 5)
         self.pool = nn.MaxPool2d(2, 2)
         self.conv2 = nn.Conv2d(6, 16, 5)
-        self.fc1 = nn.Linear(16 * 5 * 5, 120)
+        self.fc1 = nn.Linear(4*16*19*15, 120)
         self.fc2 = nn.Linear(120, 84)
         self.fc3 = nn.Linear(84, n_actions)
 
-    
     def forward(self, x):
-        return self.net(x)
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
+        x = x.view(x.size()[0]*x.size()[1]*x.size()[2]*x.size()[3])
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
 
 
 class dqn_agent(base_agent):
@@ -127,10 +133,18 @@ def preprocess(s):
     return s
 
 
+def stack_frame(s):
+    return torch.stack([s, s, s, s])
+
+
 if __name__ == "__main__":
+    # IMPORTANT: the observation space has been hardcoded into the preprocess function and the nn, so it can only be used for breakout env!
     env = gym.make("BreakoutDeterministic-v4")
-    preprocess(env.reset())
-    agent = dqn_agent(env.observation_space.shape[0], [
-                      i for i in range(env.action_space.n)])
+    s = preprocess(env.reset())
+    s_ = stack_frame(s)
+    print(s_.size())
+    print(DQN(env.action_space.n).double()(s_))
+    # agent = dqn_agent(env.observation_space.shape[0], [
+    #                   i for i in range(env.action_space.n)])
     # run_cartpole_experiment(agent)
     # agent.save_model('dqn-vanilla.pickle')
