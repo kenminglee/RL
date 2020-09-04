@@ -160,7 +160,7 @@ if __name__ == "__main__":
     env = gym.wrappers.Monitor(env, "Breakout", force=True)
     agent = dqn_agent([i for i in range(env.action_space.n)])
     run_experiment(env, agent, num_eps=int(1e6))
-    agent.save_model('dqn-vanilla.pickle')
+    agent.save_model('dqn-vanilla.pt')
 
     # env.reset()
     # env.step(env.action_space.sample())
@@ -173,4 +173,4 @@ if __name__ == "__main__":
     # agent = dqn_agent(env.observation_space.shape[0], [
     #                   i for i in range(env.action_space.n)])
     # run_cartpole_experiment(agent)
-    # agent.save_model('dqn-vanilla.pickle')
+    # agent.save_model('dqn-vanilla.pt')
