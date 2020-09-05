@@ -3,9 +3,9 @@ import gym
 import numpy as np
 
 
-def run_experiment(env, agent, num_eps=50, display_plot=True, plot_name=None, save_checkpoint_exist=False, checkpoint_name='model', save_every_x_eps=1000, r_per_eps=None, initial_eps=0):
+def run_experiment(env, agent, num_eps=50, display_plot=True, plot_name=None, save_checkpoint_exist=False, save_every_x_eps=1000, r_per_eps=None, initial_eps=0):
     r_per_eps = [] if not r_per_eps else r_per_eps
-    assert(len(r_per_eps)==initial_eps)
+    assert(len(r_per_eps) == initial_eps)
     mean_per_100_eps = []
     for eps in range(initial_eps, initial_eps+num_eps):
         s = env.reset()
@@ -26,8 +26,8 @@ def run_experiment(env, agent, num_eps=50, display_plot=True, plot_name=None, sa
                     mean_per_100_eps.append(mean)
                     print('Average reward for past 100 episode',
                           mean, 'in episode', eps+1)
-                if save_checkpoint_exist and len(r_per_eps)%save_every_x_eps==0:
-                    agent.save_checkpoint(checkpoint_name+'_'+str(eps+1)+'.tar', eps+1, r_per_eps)
+                if save_checkpoint_exist and len(r_per_eps) % save_every_x_eps == 0:
+                    agent.save_checkpoint(eps+1, r_per_eps)
                 break
     r_per_eps_x = [i+1 for i in range(len(r_per_eps))]
     r_per_eps_y = r_per_eps
