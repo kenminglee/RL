@@ -11,6 +11,8 @@ import gym
 from PIL import Image
 from torchvision import transforms
 import copy
+import os
+from os import path
 
 
 class DQN(nn.Module):
@@ -111,7 +113,7 @@ class dqn_agent(base_agent):
         # [[1], [2], [3]] (size=3x1) -> squeeze(1) -> [1,2,3]
         # gather() basically take the value of the actions we have taken
         predicted_values = self.dqn_policy(states).gather(
-            1, actions.unsqueeze(1)).squeeze(1)
+            1, actions.unsqueeze(1)).squeeze(1).to(device=self.device)
 
         next_states_values = torch.zeros(
             rewards.size(), dtype=torch.double).to(device=self.device)
@@ -148,19 +150,41 @@ class dqn_agent(base_agent):
         self.dqn_policy = torch.load(path)
         self.dqn_policy.eval()
 
-    def save_checkpoint(self, path, episode, r_per_eps):
+    def save_checkpoint(self, episode, r_per_eps, max_chkpoints=3, folder_name='checkpoint'):
+        MODEL_NAME = 'model_'+str(episode)+'.tar'
+        if not path.exists(folder_name):
+            os.makedirs(folder_name)
+        os.chdir(folder_name)
+        existingCheckpoints = [i for i in os.listdir() if 'model_' in i]
+        existingCheckpoints = sorted(existingCheckpoints, key=lambda x: int(
+            x[x.find('_')+1: x.find('.tar')]), reverse=True)
+        filesToDel = existingCheckpoints[max_chkpoints:]
+        for fileToDel in filesToDel:
+            os.remove(fileToDel)
         torch.save({
             'eps': episode,
             'model_state_dict': self.dqn_policy.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'experience_replay_buffer': self.experience_replay,
             'r_per_eps': r_per_eps
-        }, path)
+        }, MODEL_NAME)
+        os.chdir('..')
 
-    def load_checkpoint(self, path):
-        checkpoint = torch.load(path)
+    def load_latest_checkpoint(self, folder_name='checkpoint'):
+        os.chdir(folder_name)
+        existingCheckpoints = [i for i in os.listdir() if 'model_' in i]
+        existingCheckpoints = sorted(existingCheckpoints, key=lambda x: int(
+            x[x.find('_')+1: x.find('.tar')]), reverse=True)
+        os.chdir('..')
+        return self.load_checkpoint(existingCheckpoints[0])
+
+    def load_checkpoint(self, model_path, folder_name='checkpoint'):
+        checkpoint = torch.load(folder_name+'/'+model_path)
         self.dqn_policy.load_state_dict(checkpoint['model_state_dict'])
         self.dqn_target.load_state_dict(checkpoint['model_state_dict'])
+        self.dqn_policy.train()
+        self.dqn_policy.to(device=self.device)
+        self.dqn_target.to(device=self.device)
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         self.experience_replay = checkpoint['experience_replay_buffer']
         print('loaded model successfully from episode', checkpoint['eps'])
@@ -195,23 +219,22 @@ if __name__ == "__main__":
     env = gym.make("BreakoutDeterministic-v4")
 
     # If starting from scratch
-    RECORDING_FOLDER_NAME = "Breakout-eps0"
-    env = gym.wrappers.Monitor(
-        env, RECORDING_FOLDER_NAME, video_callable=lambda x: x % 1000 == 0)
-    agent = dqn_agent([i for i in range(env.action_space.n)],
-                      experience_replay_size=10000)
-    run_experiment(env, agent, num_eps=int(
-        1e6), save_checkpoint_exist=True, save_every_x_eps=1000)
-
-    # If restoring from checkpoint
-    # MODEL_PATH = 'model_10.tar'
-    # RECORDING_FOLDER_NAME = "Breakout-eps10"
+    # RECORDING_FOLDER_NAME = "Breakout-eps0"
     # env = gym.wrappers.Monitor(
     #     env, RECORDING_FOLDER_NAME, video_callable=lambda x: x % 1000 == 0)
-    # agent, start_eps, r_per_eps = dqn_agent([i for i in range(env.action_space.n)],
-    #                                         experience_replay_size=10000).load_checkpoint(MODEL_PATH)
+    # agent = dqn_agent([i for i in range(env.action_space.n)],
+    #                   experience_replay_size=9000)
     # run_experiment(env, agent, num_eps=int(
-    #     1e6), save_checkpoint_exist=True, save_every_x_eps=1000, r_per_eps=r_per_eps, initial_eps=start_eps)
+    #     1e6), save_checkpoint_exist=True, save_every_x_eps=1000)
+
+    # If restoring from checkpoint
+    RECORDING_FOLDER_NAME = "Breakout-eps9000"
+    env = gym.wrappers.Monitor(
+        env, RECORDING_FOLDER_NAME, video_callable=lambda x: x % 1000 == 0)
+    agent, start_eps, r_per_eps = dqn_agent([i for i in range(env.action_space.n)],
+                                            experience_replay_size=10000).load_latest_checkpoint()
+    run_experiment(env, agent, num_eps=int(
+        1e6), save_checkpoint_exist=True, save_every_x_eps=1000, r_per_eps=r_per_eps, initial_eps=start_eps)
 
     # agent.save_model('ddqn.pt')
     # env.reset()
