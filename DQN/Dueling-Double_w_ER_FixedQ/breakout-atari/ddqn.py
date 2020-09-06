@@ -96,7 +96,7 @@ class dqn_agent(base_agent):
 
     def perform_learning_iter(self):
         random.shuffle(self.experience_replay)
-        sample = self.experience_replay[-256:]
+        sample = self.experience_replay[-1024:]
         states, actions, rewards, next_states = zip(*sample)
 
         next_states_non_terminal_mask = torch.tensor(
@@ -183,6 +183,7 @@ class dqn_agent(base_agent):
         self.dqn_policy.load_state_dict(checkpoint['model_state_dict'])
         self.dqn_target.load_state_dict(checkpoint['model_state_dict'])
         self.dqn_policy.train()
+        self.dqn_target.eval()
         self.dqn_policy.to(device=self.device)
         self.dqn_target.to(device=self.device)
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -228,13 +229,13 @@ if __name__ == "__main__":
     #     1e6), save_checkpoint_exist=True, save_every_x_eps=1000)
 
     # If restoring from checkpoint
-    RECORDING_FOLDER_NAME = "Breakout-eps15000"
+    RECORDING_FOLDER_NAME = "Breakout-eps90000"
     env = gym.wrappers.Monitor(
-        env, RECORDING_FOLDER_NAME, video_callable=lambda x: x % 1000 == 0)
+        env, RECORDING_FOLDER_NAME, video_callable=lambda x: x % 5000 == 0)
     agent, start_eps, r_per_eps = dqn_agent([i for i in range(env.action_space.n)],
                                             experience_replay_size=10000).load_latest_checkpoint()
     run_experiment(env, agent, num_eps=int(
-        1e6), save_checkpoint_exist=True, save_every_x_eps=1000, r_per_eps=r_per_eps, initial_eps=start_eps)
+        1e6), save_checkpoint_exist=True, save_every_x_eps=10000, r_per_eps=r_per_eps, initial_eps=start_eps)
 
     # agent.save_model('ddqn.pt')
     # env.reset()
