@@ -96,7 +96,7 @@ class dqn_agent(base_agent):
 
     def perform_learning_iter(self):
         random.shuffle(self.experience_replay)
-        sample = self.experience_replay[-1024:]
+        sample = self.experience_replay[-512:]
         states, actions, rewards, next_states = zip(*sample)
 
         next_states_non_terminal_mask = torch.tensor(
