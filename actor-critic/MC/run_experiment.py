@@ -73,7 +73,7 @@ def run_cartpole_experiment(agent, display_plot=True, render_env=False, print_re
                     mean_per_100_eps.append(mean)
                     print('Average reward for past 100 episode',
                           mean, 'in episode', eps)
-                    if mean >= 200:
+                    if mean >= 195:
                         solved = True
                         print('Solved at episode', eps)
                 break

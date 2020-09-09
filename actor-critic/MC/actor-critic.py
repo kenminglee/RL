@@ -58,7 +58,7 @@ class ActorCriticAgent(base_agent):
         logits = self.actor(s)
         probs = Categorical(logits=logits)
         a = probs.sample()
-        assert len(self.latest_log_prob)==0
+        assert len(self.latest_log_prob) == 0
         self.latest_log_prob.append(probs.log_prob(a))
         return a.tolist()
 
@@ -70,31 +70,32 @@ class ActorCriticAgent(base_agent):
             return 0
         return self.choose_action(s_)
 
-        tensor_s = torch.tensor(s, dtype=torch.double).to(device=self.device)
-        tensor_s_ = torch.tensor(s_, dtype=torch.double).to(device=self.device)
-        tensor_a = torch.tensor(a, device=self.device)
-        if done:
-            delta = r - self.critic(tensor_s)
-            a_ = 0
-        else:
-            delta = r + self.gamma * self.critic(tensor_s_) - self.critic(tensor_s)
-            a_ = self.choose_action(s_)
+    def perform_learning_iter(self):
+        states, log_probs, rewards = zip(*self.obs)
+        states = torch.tensor(states, dtype=torch.double).to(
+            device=self.device)
+        discounted_rewards = self.convert_to_discounted_reward(rewards)
+        discounted_rewards = torch.tensor(
+            discounted_rewards, device=self.device)
+        log_probs = torch.stack(
+            log_probs).to(device=self.device)
+        delta = discounted_rewards - self.critic(states)
 
         self.actor_optimizer.zero_grad()
-        m = Categorical(logits=self.actor(tensor_s))
-        actor_loss = -m.log_prob(tensor_a)*(delta.detach())
+        actor_loss = torch.sum(-log_probs*(delta.detach()))
         actor_loss.backward()
         self.actor_optimizer.step()
 
         self.critic_optimizer.zero_grad()
-        critic_loss = delta**2
+        critic_loss = torch.mean(delta**2)
         critic_loss.backward()
         self.critic_optimizer.step()
-        
-        return a_
 
-    def perform_learning_iter(self):
-        states, log_probs, rewards = zip(*self.obs)
+    def convert_to_discounted_reward(self, rewards):
+        cumulative_reward = [rewards[-1]]
+        for reward in reversed(rewards[:-1]):
+            cumulative_reward.append(reward + self.gamma*cumulative_reward[-1])
+        return cumulative_reward[::-1]
 
     def save_model(self, path):
         torch.save(self.actor, path)
