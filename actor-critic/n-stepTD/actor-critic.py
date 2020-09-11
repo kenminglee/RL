@@ -8,6 +8,7 @@ import numpy as np
 import random
 import torch.nn.functional as F
 import gym
+from collections import deque
 
 # Advantage actor-critic
 
@@ -51,43 +52,38 @@ class NStepACAgent(base_agent):
         self.critic_optimizer = optim.Adam(
             self.critic.parameters(), lr=learning_rate)
         self.n_step = n_step
-        self.remainingSteps = n_step
-        self.obs = []
-        self.latest_log_prob = []
+        self.obs = deque([])
 
     def choose_action(self, s) -> int:
         s = torch.tensor(s, dtype=torch.double).to(device=self.device)
         logits = self.actor(s)
         probs = Categorical(logits=logits)
         a = probs.sample()
-        assert len(self.latest_log_prob) == 0
-        self.latest_log_prob.append(probs.log_prob(a))
         return a.tolist()
 
     def learn(self, s, a, r, s_, done) -> int:
-        self.obs.append((s, self.latest_log_prob.pop(), a, r, s_))
-        self.remainingSteps -= 1
-        if self.remainingSteps <= 0:
+        self.obs.append((s, a, r, s_))
+        if len(self.obs) >= self.n_step or done:
             self.perform_learning_iter(done)
+            self.obs.popleft()
         if done:
-            self.obs = []
-            self.remainingSteps = self.n_step
-            return 0
+            self.obs = deque([])
         return self.choose_action(s_)
 
     def perform_learning_iter(self, done):
-        states, log_probs, actions, rewards, next_states = zip(*self.obs)
+        states, actions, rewards, next_states = zip(*self.obs)
         discounted_rewards = self.convert_to_discounted_reward(rewards)
         curr_state_train = torch.tensor(
             states[0], dtype=torch.double).to(device=self.device)
-        curr_action_train = torch.tensor(
-            actions[0], dtype=torch.double).to(device=self.device)
+        curr_action_train = torch.tensor(actions[0]).to(device=self.device)
         next_state_train = torch.tensor(
             next_states[-1], dtype=torch.double).to(device=self.device)
+        n_step_reward = torch.tensor(
+            discounted_rewards[0]).to(device=self.device)
         if done:
-            delta = discounted_rewards[0] - self.critic(curr_state_train)
+            delta = n_step_reward - self.critic(curr_state_train)
         else:
-            delta = discounted_rewards[0] + self.critic(
+            delta = n_step_reward + self.gamma*self.critic(
                 next_state_train) - self.critic(curr_state_train)
 
         self.actor_optimizer.zero_grad()
@@ -114,6 +110,6 @@ class NStepACAgent(base_agent):
 if __name__ == "__main__":
     env = gym.make("CartPole-v0")
     agent = NStepACAgent(env.observation_space.shape[0], [
-        i for i in range(env.action_space.n)])
+        i for i in range(env.action_space.n)], n_step=3)
     run_cartpole_experiment(agent)
     agent.save_model('vanilla_actor_critic.pt')
