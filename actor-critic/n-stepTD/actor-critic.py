@@ -110,6 +110,6 @@ class NStepACAgent(base_agent):
 if __name__ == "__main__":
     env = gym.make("CartPole-v0")
     agent = NStepACAgent(env.observation_space.shape[0], [
-        i for i in range(env.action_space.n)], n_step=3)
+        i for i in range(env.action_space.n)], n_step=10)
     run_cartpole_experiment(agent)
     agent.save_model('vanilla_actor_critic.pt')
