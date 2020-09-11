@@ -53,47 +53,47 @@ class NStepACAgent(base_agent):
             self.critic.parameters(), lr=learning_rate)
         self.n_step = n_step
         self.obs = deque([])
+        self.latest_log_prob = []
 
     def choose_action(self, s) -> int:
         s = torch.tensor(s, dtype=torch.double).to(device=self.device)
         logits = self.actor(s)
         probs = Categorical(logits=logits)
         a = probs.sample()
+        assert len(self.latest_log_prob) == 0
+        self.latest_log_prob.append(probs.log_prob(a))
         return a.tolist()
 
     def learn(self, s, a, r, s_, done) -> int:
-        self.obs.append((s, a, r, s_))
+        self.obs.append((s, self.latest_log_prob.pop(), r, s_))
         if len(self.obs) >= self.n_step or done:
             self.perform_learning_iter(done)
-            self.obs.popleft()
-        if done:
             self.obs = deque([])
-        return self.choose_action(s_)
+        return self.choose_action(s_) if not done else 0
 
     def perform_learning_iter(self, done):
-        states, actions, rewards, next_states = zip(*self.obs)
+        states, log_probs, rewards, next_states = zip(*self.obs)
         discounted_rewards = self.convert_to_discounted_reward(rewards)
-        curr_state_train = torch.tensor(
-            states[0], dtype=torch.double).to(device=self.device)
-        curr_action_train = torch.tensor(actions[0]).to(device=self.device)
-        next_state_train = torch.tensor(
-            next_states[-1], dtype=torch.double).to(device=self.device)
-        n_step_reward = torch.tensor(
-            discounted_rewards[0]).to(device=self.device)
-        if done:
-            delta = n_step_reward - self.critic(curr_state_train)
+        states = torch.tensor(states, dtype=torch.double).to(
+            device=self.device)
+        discounted_rewards = torch.tensor(
+            discounted_rewards, device=self.device)
+        log_probs = torch.stack(log_probs).to(device=self.device)
+        if not done:
+            next_state = torch.tensor(
+                next_states[-1], dtype=torch.double).to(device=self.device)
+            delta = discounted_rewards + self.gamma * \
+                self.critic(next_state) - self.critic(states)
         else:
-            delta = n_step_reward + self.gamma*self.critic(
-                next_state_train) - self.critic(curr_state_train)
+            delta = discounted_rewards - self.critic(states)
 
         self.actor_optimizer.zero_grad()
-        m = Categorical(logits=self.actor(curr_state_train))
-        actor_loss = -m.log_prob(curr_action_train)*(delta.detach())
+        actor_loss = torch.sum(-log_probs*(delta.detach()))
         actor_loss.backward()
         self.actor_optimizer.step()
 
         self.critic_optimizer.zero_grad()
-        critic_loss = delta**2
+        critic_loss = torch.mean(torch.pow(delta, 2))
         critic_loss.backward()
         self.critic_optimizer.step()
 
