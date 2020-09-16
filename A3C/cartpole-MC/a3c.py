@@ -1,5 +1,4 @@
 from base_agent import base_agent
-from run_experiment import run_cartpole_experiment
 import torch.nn as nn
 import torch
 import torch.optim as optim
@@ -9,6 +8,7 @@ from torch.multiprocessing import Queue, Lock, Value
 import torch.nn.functional as F
 import gym
 import numpy as np
+import matplotlib.pyplot as plt
 
 # A3C paper: https://arxiv.org/pdf/1602.01783.pdf
 
@@ -128,7 +128,7 @@ if __name__ == "__main__":
     gl_agent = ActorCritic(
         env.observation_space.shape[0], env.action_space.n).double().to(device=device)
     gl_agent.share_memory()
-    gl_r_per_eps = Queue()
+    gl_r_per_eps: "Queue[int]" = Queue()
     gl_solved = Value('i', False)
     gl_lock = Lock()
     gl_print_lock = Lock()
@@ -144,4 +144,17 @@ if __name__ == "__main__":
     reward = []
     while gl_r_per_eps.qsize() != 0:
         reward.append(gl_r_per_eps.get())
+
+    torch.save(gl_agent, 'MC-A3C.pt')
+
     del gl_r_per_eps, gl_solved, gl_lock, gl_agent
+
+    r_per_eps_x = [i+1 for i in range(len(reward))]
+    r_per_eps_y = reward
+    mean_per_100_eps = [np.mean(reward[i:i+100])
+                        for i in range(0, len(reward)-100, 100)]
+    mean_per_100_eps_x = [(i+1)*100 for i in range(len(mean_per_100_eps))]
+    mean_per_100_eps_y = mean_per_100_eps
+
+    plt.plot(r_per_eps_x, r_per_eps_y, mean_per_100_eps_x, mean_per_100_eps_y)
+    plt.show()
