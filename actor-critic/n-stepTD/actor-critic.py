@@ -65,27 +65,29 @@ class NStepACAgent(base_agent):
         return a.tolist()
 
     def learn(self, s, a, r, s_, done) -> int:
-        self.obs.append((s, self.latest_log_prob.pop(), r, s_))
+        self.obs.append((s, self.latest_log_prob.pop(), r))
         if len(self.obs) >= self.n_step or done:
-            self.perform_learning_iter(done)
+            self.perform_learning_iter(s_, done)
             self.obs = deque([])
         return self.choose_action(s_) if not done else 0
 
-    def perform_learning_iter(self, done):
-        states, log_probs, rewards, next_states = zip(*self.obs)
-        discounted_rewards = self.convert_to_discounted_reward(rewards)
-        states = torch.tensor(states, dtype=torch.double).to(
-            device=self.device)
-        discounted_rewards = torch.tensor(
-            discounted_rewards, device=self.device)
-        log_probs = torch.stack(log_probs).to(device=self.device)
+    def perform_learning_iter(self, s_, done):
+        states, log_probs, rewards = zip(*self.obs)
         if not done:
             next_state = torch.tensor(
-                next_states[-1], dtype=torch.double).to(device=self.device)
-            delta = discounted_rewards + self.gamma * \
-                self.critic(next_state) - self.critic(states)
-        else:
-            delta = discounted_rewards - self.critic(states)
+                s_, dtype=torch.double).to(device=self.device)
+            rewards = list(rewards)
+            rewards[-1] += self.gamma * \
+                self.critic(next_state).squeeze()
+
+
+        discounted_rewards = self.convert_to_discounted_reward(rewards)
+        discounted_rewards = torch.tensor(
+                discounted_rewards).to(device=self.device)
+        states = torch.tensor(states, dtype=torch.double).to(
+            device=self.device)
+        log_probs = torch.stack(log_probs).to(device=self.device)
+        delta = discounted_rewards - self.critic(states)
 
         self.actor_optimizer.zero_grad()
         actor_loss = torch.sum(-log_probs*(delta.detach()))
@@ -93,7 +95,7 @@ class NStepACAgent(base_agent):
         self.actor_optimizer.step()
 
         self.critic_optimizer.zero_grad()
-        critic_loss = torch.mean(torch.pow(delta, 2))
+        critic_loss = torch.mean(delta**2)
         critic_loss.backward()
         self.critic_optimizer.step()
 
