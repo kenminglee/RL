@@ -26,7 +26,7 @@ class ActorCritic(nn.Module):
 
 
 class Agent(base_agent):
-    def __init__(self, env, gl_agent, gl_lock, n_step=1, reward_decay=0.9):
+    def __init__(self, env, gl_agent, gl_lock, n_step=10, reward_decay=0.9):
         # self.device = torch.device(
         #     'cuda' if torch.cuda.is_available() else 'cpu')
         self.device = torch.device('cpu')
@@ -37,8 +37,8 @@ class Agent(base_agent):
         self.gl_optim = optim.Adam(gl_agent.parameters())
         self.gl_agent = gl_agent
         self.gl_lock = gl_lock
-        self.n_step = n_step
         self.obs = []
+        self.n_step = n_step
         self.latest_log_prob = []
 
     def choose_action(self, s) -> int:
@@ -52,7 +52,7 @@ class Agent(base_agent):
 
     def learn(self, s, a, r, s_, done) -> int:
         self.obs.append((s, self.latest_log_prob.pop(), r,))
-        if len(self.obs)>=self.n_step or done:
+        if done:
             self.perform_learning_iter(s_, done)
             self.obs = []
             return 0
@@ -62,17 +62,17 @@ class Agent(base_agent):
         states, log_probs, rewards = zip(*self.obs)
         states = torch.tensor(states, dtype=torch.double).to(
             device=self.device)
+        if not done:
+            rewards = list(rewards)
+            _, val = self.agent(s_)
+            rewards[-1] += self.gamma*val
         discounted_rewards = self.convert_to_discounted_reward(rewards)
         discounted_rewards = torch.tensor(
             discounted_rewards, device=self.device)
-        
         log_probs = torch.stack(
             log_probs).to(device=self.device)
         _, critic_values = self.agent(states)
-        if done:
-            delta = discounted_rewards - critic_values
-        else:
-            
+        delta = discounted_rewards - critic_values
         loss = torch.sum(-log_probs*(delta.detach())) + \
             0.1*torch.mean(delta**2)
 
@@ -96,7 +96,7 @@ class Agent(base_agent):
 def worker(gl_agent, gl_r_per_eps, gl_solved, gl_lock, gl_print_lock, worker_num, n_step):
     env = gym.make("CartPole-v0")
     # env = gym.wrappers.Monitor(env, "recording", force=True)
-    agent = Agent(env, gl_agent, gl_lock)
+    agent = Agent(env, gl_agent, gl_lock, n_step=n_step)
     r_per_eps = []
     while not bool(gl_solved.value):
         s = env.reset()
@@ -139,7 +139,7 @@ if __name__ == "__main__":
     gl_print_lock = Lock()
     for i in range(mp.cpu_count()):
         p = mp.Process(target=worker, args=(
-            gl_agent, gl_r_per_eps, gl_solved, gl_lock, gl_print_lock, i))
+            gl_agent, gl_r_per_eps, gl_solved, gl_lock, gl_print_lock, i, 1))
         p.start()
         processes.append(p)
     for p in processes:
