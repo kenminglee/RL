@@ -70,10 +70,10 @@ class Agent(base_agent):
         delta = discounted_rewards - critic_values
         loss = torch.sum(-log_probs*(delta.detach())) + \
             0.1*torch.mean(delta**2)
-        loss.backward()
 
         self.gl_lock.acquire()
         self.gl_optim.zero_grad()
+        loss.backward()
         for param, gl_param in zip(self.agent.parameters(), self.gl_agent.parameters()):
             gl_param.grad = param.grad
         self.gl_optim.step()
