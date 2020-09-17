@@ -1,51 +1,160 @@
 from base_agent import base_agent
-from run_experiment import run_cartpole_experiment
 import torch.nn as nn
 import torch
 import torch.optim as optim
-import numpy as np
-import random
+import torch.multiprocessing as mp
+from torch.distributions import Categorical
+from torch.multiprocessing import Queue, Lock, Value
 import torch.nn.functional as F
 import gym
+import numpy as np
+import matplotlib.pyplot as plt
 
-# Advantage actor-critic
+# A3C paper: https://arxiv.org/pdf/1602.01783.pdf
 
 
-class Critic(nn.Module):
-    # Dueling architecture https://arxiv.org/pdf/1511.06581.pdf
+class ActorCritic(nn.Module):
     def __init__(self, input_size, n_actions):
-        super(DQN, self).__init__()
-        self.n_actions = n_actions
-        self.fc1 = nn.Linear(input_size, 128)
-        self.fc_state_action_val_output = nn.Linear(128, n_actions)
-        self.fc_state_val_output = nn.Linear(128, 1)
+        super(ActorCritic, self).__init__()
+        self.first_layer = nn.Linear(input_size, 128)
+        self.critic_head = nn.Linear(128, 1)
+        self.actor_head = nn.Linear(128, n_actions)
 
     def forward(self, x):
-        x = F.relu(self.fc1(x))
-        stream1_out = self.fc_state_action_val_output(x)
-        stream2_out = self.fc_state_val_output(x)
-        stream1_out_mean = torch.sum(
-            stream1_out, dim=1, keepdim=True) / self.n_actions
-        output = stream2_out + (stream1_out - stream1_out_mean)
-        return output
+        x = F.relu(self.first_layer(x))
+        return self.actor_head(x), self.critic_head(x.detach())
 
 
-class Actor(nn.Module):
-    def __init__(self, input_size, n_actions):
-        super(DQN, self).__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_size, 128),
-            nn.ReLU(),
-            nn.Linear(128, n_actions)
-        )
+class Agent(base_agent):
+    def __init__(self, env, gl_agent, gl_lock, n_step=10, reward_decay=0.9):
+        # self.device = torch.device(
+        #     'cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device('cpu')
+        self.gamma = reward_decay
+        self.agent = ActorCritic(
+            env.observation_space.shape[0], env.action_space.n).double().to(device=self.device)
+        self.agent.load_state_dict(gl_agent.state_dict())
+        self.gl_optim = optim.Adam(gl_agent.parameters())
+        self.gl_agent = gl_agent
+        self.gl_lock = gl_lock
+        self.obs = []
+        self.n_step = n_step
+        self.latest_log_prob = []
 
-    def forward(self, x):
-        return self.net(x)
-
-
-class agent(base_agent):
     def choose_action(self, s) -> int:
-        pass
+        s = torch.tensor(s, dtype=torch.double).to(device=self.device)
+        actor_logits, _ = self.agent(s)
+        probs = Categorical(logits=actor_logits)
+        a = probs.sample()
+        assert len(self.latest_log_prob) == 0
+        self.latest_log_prob.append(probs.log_prob(a))
+        return a.tolist()
 
     def learn(self, s, a, r, s_, done) -> int:
-        pass
+        self.obs.append((s, self.latest_log_prob.pop(), r,))
+        if done:
+            self.perform_learning_iter(s_, done)
+            self.obs = []
+            return 0
+        return self.choose_action(s_)
+
+    def perform_learning_iter(self, s_, done):
+        states, log_probs, rewards = zip(*self.obs)
+        states = torch.tensor(states, dtype=torch.double).to(
+            device=self.device)
+        if not done:
+            rewards = list(rewards)
+            _, val = self.agent(s_)
+            rewards[-1] += self.gamma*val
+        discounted_rewards = self.convert_to_discounted_reward(rewards)
+        discounted_rewards = torch.tensor(
+            discounted_rewards, device=self.device)
+        log_probs = torch.stack(
+            log_probs).to(device=self.device)
+        _, critic_values = self.agent(states)
+        delta = discounted_rewards - critic_values
+        loss = torch.sum(-log_probs*(delta.detach())) + \
+            0.1*torch.mean(delta**2)
+
+        self.gl_lock.acquire()
+        self.gl_optim.zero_grad()
+        loss.backward()
+        for param, gl_param in zip(self.agent.parameters(), self.gl_agent.parameters()):
+            gl_param.grad = param.grad
+        self.gl_optim.step()
+        self.gl_lock.release()
+
+        self.agent.load_state_dict(self.gl_agent.state_dict())
+
+    def convert_to_discounted_reward(self, rewards):
+        cumulative_reward = [rewards[-1]]
+        for reward in reversed(rewards[:-1]):
+            cumulative_reward.append(reward + self.gamma*cumulative_reward[-1])
+        return cumulative_reward[::-1]
+
+
+def run(gl_return, gl_agent, update_freq, n_step):
+    env = gym.make("CartPole-v0")
+    # env = gym.wrappers.Monitor(env, "recording", force=True)
+    device = torch.device('cpu')
+    agent = ActorCritic(
+            env.observation_space.shape[0], env.action_space.n).double().to(device=self.device)
+    agent.load_state_dict(gl_agent.state_dict())
+    r_per_eps = []
+    
+    while 
+        s = env.reset()
+        a = agent.choose_action(s)
+        total_r_in_eps = 0
+        done = False
+        step_count = 0
+        while not done and step_count<n_step:
+            s_, r, done, _ = env.step(a)
+            a_ = agent.learn(s, a, r, s_, done)
+            
+            s = s_
+            a = a_
+            step_count += 1
+    
+    
+
+
+def training_loop(update_freq):
+    env = gym.make("CartPole-v0")
+    device = torch.device('cpu')
+    gl_agent = ActorCritic(
+        env.observation_space.shape[0], env.action_space.n).double().to(device=device)
+    gl_agent.share_memory()
+    gl_ret: "Queue[Dict]" = Queue()
+    processes = []
+    reward = []
+    highest_worker_score = 0
+    while highest_worker_score<195:
+        for i in range(mp.cpu_count()):
+            p = mp.Process(target=worker, args=(gl_ret, gl_agent, 1))
+            p.start()
+            processes.append(p)
+        for p in processes:
+            p.join()
+        for p in processes:
+            p.terminate()
+        ret_list = []
+        while gl_ret.qsize()!=0:
+            ret_list.append(gl_ret.get())
+
+    
+    torch.save(gl_agent, 'nStep-A2C.pt')
+    del gl_agent, gl_ret
+    r_per_eps_x = [i+1 for i in range(len(reward))]
+    r_per_eps_y = reward
+
+    plt.plot(r_per_eps_x, r_per_eps_y)
+    plt.show()
+
+
+if __name__ == "__main__":
+
+
+    
+
+    
