@@ -76,12 +76,9 @@ class NStepACAgent(base_agent):
         if not done:
             next_state = torch.tensor(
                 s_, dtype=torch.double).to(device=self.device)
-            rewards = list(rewards)
-            rewards[-1] += self.gamma * \
-                self.critic(next_state).squeeze()
-
-
-        discounted_rewards = self.convert_to_discounted_reward(rewards)
+            discounted_rewards = self.convert_to_discounted_reward(rewards, self.critic(next_state))
+        else:
+            discounted_rewards = self.convert_to_discounted_reward(rewards, 0)
         discounted_rewards = torch.tensor(
                 discounted_rewards).to(device=self.device)
         states = torch.tensor(states, dtype=torch.double).to(
@@ -99,8 +96,8 @@ class NStepACAgent(base_agent):
         critic_loss.backward()
         self.critic_optimizer.step()
 
-    def convert_to_discounted_reward(self, rewards):
-        cumulative_reward = [rewards[-1]]
+    def convert_to_discounted_reward(self, rewards, next_state_val):
+        cumulative_reward = [rewards[-1]+self.gamma*next_state_val]
         for reward in reversed(rewards[:-1]):
             cumulative_reward.append(reward + self.gamma*cumulative_reward[-1])
         return cumulative_reward[::-1]
