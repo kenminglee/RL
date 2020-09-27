@@ -40,25 +40,27 @@ class Agent(base_agent):
         self.obs = []
         self.n_step = n_step
         self.latest_log_prob = []
+        self.latest_entropy = []
 
     def choose_action(self, s) -> int:
         s = torch.tensor(s, dtype=torch.double).to(device=self.device)
         actor_logits, _ = self.agent(s)
         probs = Categorical(logits=actor_logits)
         a = probs.sample()
-        assert len(self.latest_log_prob) == 0
+        assert len(self.latest_log_prob) == 0 and len(self.latest_entropy)==0
         self.latest_log_prob.append(probs.log_prob(a))
+        self.latest_entropy.append(probs.entropy())
         return a.tolist()
 
     def learn(self, s, a, r, s_, done) -> int:
-        self.obs.append((s, self.latest_log_prob.pop(), r,))
+        self.obs.append((s, self.latest_log_prob.pop(), r, self.latest_entropy.pop()))
         if done or len(self.obs) >= self.n_step:
             self.perform_learning_iter(s_, done)
             self.obs = []
         return 0 if done else self.choose_action(s_)
 
     def perform_learning_iter(self, s_, done):
-        states, log_probs, rewards = zip(*self.obs)
+        states, log_probs, rewards, entropy = zip(*self.obs)
         states = torch.tensor(states, dtype=torch.double).to(
             device=self.device)
         if not done:
@@ -72,10 +74,10 @@ class Agent(base_agent):
             discounted_rewards, device=self.device)
         log_probs = torch.stack(
             log_probs).to(device=self.device)
+        entropy = torch.stack(entropy).to(device=self.device)
         _, critic_values = self.agent(states)
         delta = discounted_rewards - critic_values
-        loss = torch.sum(-log_probs*(delta.detach())) + \
-            0.1*torch.mean(delta**2)
+        loss = torch.sum(-log_probs*(delta.detach())) - torch.sum(0.001*entropy) + 0.1*torch.mean(delta**2)
 
         self.gl_lock.acquire()
         self.gl_optim.zero_grad()
@@ -140,7 +142,7 @@ if __name__ == "__main__":
     gl_print_lock = Lock()
     for i in range(mp.cpu_count()):
         p = mp.Process(target=worker, args=(
-            gl_agent, gl_r_per_eps, gl_solved, gl_lock, gl_print_lock, i, 10))
+            gl_agent, gl_r_per_eps, gl_solved, gl_lock, gl_print_lock, i, 100))
         p.start()
         processes.append(p)
     for p in processes:
