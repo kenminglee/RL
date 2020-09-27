@@ -77,7 +77,7 @@ class Agent(base_agent):
         entropy = torch.stack(entropy).to(device=self.device)
         _, critic_values = self.agent(states)
         delta = discounted_rewards - critic_values
-        loss = torch.sum(-log_probs*(delta.detach())) - torch.sum(0.001*entropy) + 0.1*torch.mean(delta**2)
+        loss = torch.mean(-log_probs*(delta.detach()) - 0.001*entropy + 0.1*(delta**2))
 
         self.gl_lock.acquire()
         self.gl_optim.zero_grad()
@@ -142,7 +142,7 @@ if __name__ == "__main__":
     gl_print_lock = Lock()
     for i in range(mp.cpu_count()):
         p = mp.Process(target=worker, args=(
-            gl_agent, gl_r_per_eps, gl_solved, gl_lock, gl_print_lock, i, 100))
+            gl_agent, gl_r_per_eps, gl_solved, gl_lock, gl_print_lock, i, 10))
         p.start()
         processes.append(p)
     for p in processes:
