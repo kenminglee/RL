@@ -2,9 +2,8 @@ from base_agent import base_agent
 import torch.nn as nn
 import torch
 import torch.optim as optim
-import torch.multiprocessing as mp
 from torch.distributions import Categorical
-from torch.multiprocessing import Queue, Lock, Value
+import torch.multiprocessing as mp
 import torch.nn.functional as F
 import gym
 import numpy as np
@@ -93,7 +92,7 @@ class Agent(base_agent):
         return cumulative_reward[::-1]
 
 
-def run(gl_return, gl_agent, update_freq, n_step):
+def run(gl_return, gl_agent, gl_agent_lock, gl_print_lock, gl_count, semaphore, worker_num, gl_solved, n_step):
     env = gym.make("CartPole-v0")
     # env = gym.wrappers.Monitor(env, "recording", force=True)
     device = torch.device('cpu')
@@ -102,47 +101,63 @@ def run(gl_return, gl_agent, update_freq, n_step):
     agent.load_state_dict(gl_agent.state_dict())
     r_per_eps = []
     
-    while 
+    while not bool(gl_solved.value):
         s = env.reset()
         a = agent.choose_action(s)
         total_r_in_eps = 0
-        done = False
-        step_count = 0
-        while not done and step_count<n_step:
+        while True:
             s_, r, done, _ = env.step(a)
             a_ = agent.learn(s, a, r, s_, done)
-            
-            s = s_
-            a = a_
-            step_count += 1
+            total_r_in_eps += r
+            s, a = s_, a_
+            if done:
+                r_per_eps.append(total_r_in_eps)
+                gl_r_per_eps.put(total_r_in_eps)
+                if len(r_per_eps) % 100 == 0:
+                    mean = np.mean(r_per_eps[-100:])
+                    gl_print_lock.acquire()
+                    print(worker_num, ': Average reward for past 100 episode',
+                          mean, 'in episode', len(r_per_eps))
+                    gl_print_lock.release()
+                    if mean >= 195:
+                        gl_solved.value = True
+                        gl_print_lock.acquire()
+                        print(worker_num, ': Solved at episode', len(r_per_eps))
+                        gl_print_lock.release()
+                break
     
     
 
 
-def training_loop(update_freq):
+def training_loop():
     env = gym.make("CartPole-v0")
     device = torch.device('cpu')
     gl_agent = ActorCritic(
         env.observation_space.shape[0], env.action_space.n).double().to(device=device)
+
+    num_processes = mp.cpu_count()
     gl_agent.share_memory()
-    gl_ret: "Queue[Dict]" = Queue()
+    gl_agent_lock = mp.Lock()
+    gl_print_lock = mp.Lock()
+    gl_ret: "Queue[Dict]" = mp.Queue()
+    semaphore = mp.Semaphore(num_processes)
+    gl_count = mp.Value('i', 0)
+    gl_solved = Value('i', False)
+    
     processes = []
     reward = []
-    highest_worker_score = 0
-    while highest_worker_score<195:
-        for i in range(mp.cpu_count()):
-            p = mp.Process(target=worker, args=(gl_ret, gl_agent, 1))
-            p.start()
-            processes.append(p)
-        for p in processes:
-            p.join()
-        for p in processes:
-            p.terminate()
-        ret_list = []
-        while gl_ret.qsize()!=0:
-            ret_list.append(gl_ret.get())
+    for i in range(num_processes):
+        p = mp.Process(target=worker, args=(gl_ret, gl_agent, gl_agent_lock, gl_print_lock, gl_count, semaphore, i, gl_solved, 1))
+        p.start()
+        processes.append(p)
+    for p in processes:
+        p.join()
+    for p in processes:
+        p.terminate()
+    ret_list = []
+    while gl_ret.qsize()!=0:
+        ret_list.append(gl_ret.get())
 
-    
     torch.save(gl_agent, 'nStep-A2C.pt')
     del gl_agent, gl_ret
     r_per_eps_x = [i+1 for i in range(len(reward))]
