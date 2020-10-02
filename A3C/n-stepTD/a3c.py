@@ -17,12 +17,13 @@ class ActorCritic(nn.Module):
     def __init__(self, input_size, n_actions):
         super(ActorCritic, self).__init__()
         self.first_layer = nn.Linear(input_size, 128)
-        self.critic_head = nn.Linear(128, 1)
+        self.critic_layer = nn.Linear(128, 64)
+        self.critic_head = nn.Linear(64, 1)
         self.actor_head = nn.Linear(128, n_actions)
 
     def forward(self, x):
         x = F.relu(self.first_layer(x))
-        return self.actor_head(x), self.critic_head(x.detach())
+        return self.actor_head(x), self.critic_head(F.relu(self.critic_layer(x.detach())))
 
 
 class Agent(base_agent):
@@ -67,7 +68,7 @@ class Agent(base_agent):
             _, val = self.agent(torch.tensor(
                 s_, dtype=torch.double).to(device=self.device))
             discounted_rewards = self.convert_to_discounted_reward(
-                rewards, val)
+                rewards, val.squeeze())
         else:
             discounted_rewards = self.convert_to_discounted_reward(rewards, 0)
         discounted_rewards = torch.tensor(
@@ -76,9 +77,9 @@ class Agent(base_agent):
             log_probs).to(device=self.device)
         entropy = torch.stack(entropy).to(device=self.device)
         _, critic_values = self.agent(states)
-        delta = discounted_rewards - critic_values
-        loss = torch.mean(-log_probs*(delta.detach()) - 0.001*entropy + 0.1*(delta**2))
-
+        delta = discounted_rewards.squeeze() - critic_values.squeeze()    
+        loss = torch.sum(-log_probs*(delta.detach()) - 0.001*entropy) + 0.5*F.smooth_l1_loss(critic_values.squeeze().float(), discounted_rewards.squeeze().float())
+        
         self.gl_lock.acquire()
         self.gl_optim.zero_grad()
         loss.backward()
@@ -142,7 +143,7 @@ if __name__ == "__main__":
     gl_print_lock = Lock()
     for i in range(mp.cpu_count()):
         p = mp.Process(target=worker, args=(
-            gl_agent, gl_r_per_eps, gl_solved, gl_lock, gl_print_lock, i, 10))
+            gl_agent, gl_r_per_eps, gl_solved, gl_lock, gl_print_lock, i, 20))
         p.start()
         processes.append(p)
     for p in processes:
