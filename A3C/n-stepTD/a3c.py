@@ -17,13 +17,12 @@ class ActorCritic(nn.Module):
     def __init__(self, input_size, n_actions):
         super(ActorCritic, self).__init__()
         self.first_layer = nn.Linear(input_size, 128)
-        self.critic_layer = nn.Linear(128, 64)
-        self.critic_head = nn.Linear(64, 1)
+        self.critic_head = nn.Linear(128, 1)
         self.actor_head = nn.Linear(128, n_actions)
 
     def forward(self, x):
         x = F.relu(self.first_layer(x))
-        return self.actor_head(x), self.critic_head(F.relu(self.critic_layer(x.detach())))
+        return self.actor_head(x), self.critic_head(x.detach())
 
 
 class Agent(base_agent):
@@ -36,6 +35,7 @@ class Agent(base_agent):
             env.observation_space.shape[0], env.action_space.n).double().to(device=self.device)
         self.agent.load_state_dict(gl_agent.state_dict())
         self.gl_optim = optim.Adam(gl_agent.parameters())
+        self.optim = optim.Adam(self.agent.parameters())
         self.gl_agent = gl_agent
         self.gl_lock = gl_lock
         self.obs = []
@@ -61,6 +61,7 @@ class Agent(base_agent):
         return 0 if done else self.choose_action(s_)
 
     def perform_learning_iter(self, s_, done):
+        self.optim.zero_grad()
         states, log_probs, rewards, entropy = zip(*self.obs)
         states = torch.tensor(states, dtype=torch.double).to(
             device=self.device)
@@ -72,16 +73,16 @@ class Agent(base_agent):
         else:
             discounted_rewards = self.convert_to_discounted_reward(rewards, 0)
         discounted_rewards = torch.tensor(
-            discounted_rewards, device=self.device)
+            discounted_rewards, device=self.device).squeeze()
         log_probs = torch.stack(
-            log_probs).to(device=self.device)
-        entropy = torch.stack(entropy).to(device=self.device)
+            log_probs).to(device=self.device).squeeze()
+        entropy = torch.stack(entropy).to(device=self.device).squeeze()
         _, critic_values = self.agent(states)
-        delta = discounted_rewards.squeeze() - critic_values.squeeze()    
-        loss = torch.sum(-log_probs*(delta.detach()) - 0.001*entropy) + 0.5*F.smooth_l1_loss(critic_values.squeeze().float(), discounted_rewards.squeeze().float())
+        critic_values = critic_values.squeeze()
+        delta = discounted_rewards - critic_values
+        loss = (torch.sum(-log_probs*(delta.detach())-0.01*entropy) + 0.1*F.smooth_l1_loss(critic_values.float(), discounted_rewards.float()))/4
         
         self.gl_lock.acquire()
-        self.gl_optim.zero_grad()
         loss.backward()
         for param, gl_param in zip(self.agent.parameters(), self.gl_agent.parameters()):
             gl_param.grad = param.grad
@@ -143,7 +144,7 @@ if __name__ == "__main__":
     gl_print_lock = Lock()
     for i in range(mp.cpu_count()):
         p = mp.Process(target=worker, args=(
-            gl_agent, gl_r_per_eps, gl_solved, gl_lock, gl_print_lock, i, 20))
+            gl_agent, gl_r_per_eps, gl_solved, gl_lock, gl_print_lock, i, 50))
         p.start()
         processes.append(p)
     for p in processes:
