@@ -34,7 +34,7 @@ class Agent(base_agent):
         self.agent = ActorCritic(
             env.observation_space.shape[0], env.action_space.n).double().to(device=self.device)
         self.agent.load_state_dict(gl_agent.state_dict())
-        self.gl_optim = optim.Adam(gl_agent.parameters())
+        self.optim = optim.Adam(self.agent.parameters())
         self.gl_agent = gl_agent
         self.gl_lock = gl_lock
         self.obs = []
@@ -58,6 +58,7 @@ class Agent(base_agent):
         return self.choose_action(s_)
 
     def perform_learning_iter(self):
+        self.optim.zero_grad()
         states, log_probs, rewards = zip(*self.obs)
         states = torch.tensor(states, dtype=torch.double).to(
             device=self.device)
@@ -72,7 +73,6 @@ class Agent(base_agent):
             0.1*torch.mean(delta**2)
 
         self.gl_lock.acquire()
-        self.gl_optim.zero_grad()
         loss.backward()
         for param, gl_param in zip(self.agent.parameters(), self.gl_agent.parameters()):
             gl_param.grad = param.grad
