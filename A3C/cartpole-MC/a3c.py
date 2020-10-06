@@ -34,6 +34,7 @@ class Agent(base_agent):
         self.agent = ActorCritic(
             env.observation_space.shape[0], env.action_space.n).double().to(device=self.device)
         self.agent.load_state_dict(gl_agent.state_dict())
+        self.gl_optim = optim.Adam(gl_agent.parameters())
         self.optim = optim.Adam(self.agent.parameters())
         self.gl_agent = gl_agent
         self.gl_lock = gl_lock
