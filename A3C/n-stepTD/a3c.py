@@ -107,7 +107,7 @@ def worker(gl_agent, gl_r_per_eps, gl_solved, gl_lock, gl_print_lock, worker_num
         s = env.reset()
         a = agent.choose_action(s)
         total_r_in_eps = 0
-        while True:
+        while not bool(gl_solved.value):
             s_, r, done, _ = env.step(a)
             a_ = agent.learn(s, a, r, s_, done)
             total_r_in_eps += r
@@ -123,7 +123,8 @@ def worker(gl_agent, gl_r_per_eps, gl_solved, gl_lock, gl_print_lock, worker_num
                           mean, 'in episode', len(r_per_eps))
                     gl_print_lock.release()
                     if mean >= 195:
-                        gl_solved.value = True
+                        with gl_solved.get_lock():
+                            gl_solved.value = True
                         gl_print_lock.acquire()
                         print(worker_num, ': Solved at episode', len(r_per_eps))
                         gl_print_lock.release()
