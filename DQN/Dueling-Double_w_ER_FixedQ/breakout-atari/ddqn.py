@@ -229,7 +229,7 @@ if __name__ == "__main__":
     #     1e6), save_checkpoint_exist=True, save_every_x_eps=1000)
 
     # If restoring from checkpoint
-    RECORDING_FOLDER_NAME = "Breakout-eps90000"
+    RECORDING_FOLDER_NAME = "Breakout-eps130000"
     env = gym.wrappers.Monitor(
         env, RECORDING_FOLDER_NAME, video_callable=lambda x: x % 5000 == 0)
     agent, start_eps, r_per_eps = dqn_agent([i for i in range(env.action_space.n)],
