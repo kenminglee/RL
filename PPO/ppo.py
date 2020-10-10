@@ -114,8 +114,8 @@ class Agent(base_agent):
 
 
 def worker(gl_agent, gl_r_per_eps, gl_solved, gl_lock, gl_print_lock, semaphore, gl_count, num_processes, worker_num, n_step):
-    env = gym.make("LunarLander-v2")
-    # env = gym.make("CartPole-v0")
+    # env = gym.make("LunarLander-v2")
+    env = gym.make("CartPole-v0")
     # env = gym.wrappers.Monitor(env, "recording", force=True)
     agent = Agent(env, gl_agent, gl_lock, semaphore, gl_count, num_processes, n_step=n_step)
     r_per_eps = []
@@ -149,8 +149,8 @@ def worker(gl_agent, gl_r_per_eps, gl_solved, gl_lock, gl_print_lock, semaphore,
 
 if __name__ == "__main__":
     processes = []
-    env = gym.make("LunarLander-v2")
-    # env = gym.make("CartPole-v0")
+    # env = gym.make("LunarLander-v2")
+    env = gym.make("CartPole-v0")
     # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     device = torch.device('cpu')
     gl_agent = ActorCritic(
@@ -166,7 +166,7 @@ if __name__ == "__main__":
     for i in range(num_processes):
         p = mp.Process(target=worker, args=(
             gl_agent, gl_r_per_eps, gl_solved, gl_lock, gl_print_lock, 
-            semaphore, gl_count, num_processes, i, 20))
+            semaphore, gl_count, num_processes, i, 128))
         p.start()
         processes.append(p)
     for p in processes:
