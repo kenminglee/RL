@@ -4,7 +4,7 @@ import torch
 import torch.optim as optim
 import torch.multiprocessing as mp
 from torch.distributions import Categorical
-from torch.multiprocessing import Queue, Lock, Value
+from torch.multiprocessing import Queue, Lock, Value, Array
 import torch.nn.functional as F
 import gym
 import numpy as np
@@ -82,6 +82,7 @@ class Agent(base_agent):
         entropy = torch.stack(entropy).to(device=self.device).squeeze()
         _, critic_values = self.agent(states)
         critic_values = critic_values.squeeze()
+        
         delta = discounted_rewards - critic_values
         loss = (torch.sum(-log_probs*(delta.detach())-0.01*entropy) \
             + 0.1*F.smooth_l1_loss(critic_values.float(), discounted_rewards.float()))/self.process_num
@@ -163,10 +164,11 @@ if __name__ == "__main__":
     semaphore = mp.Semaphore(0)
     gl_count = mp.Value('i', 0)
     num_processes = mp.cpu_count()
+    step_size = 128
     for i in range(num_processes):
         p = mp.Process(target=worker, args=(
             gl_agent, gl_r_per_eps, gl_solved, gl_lock, gl_print_lock, 
-            semaphore, gl_count, num_processes, i, 128))
+            semaphore, gl_count, num_processes, i, step_size))
         p.start()
         processes.append(p)
     for p in processes:
