@@ -7,6 +7,11 @@ For every 100 numbers they count, send counter to main process.
 Wait until all 4 processes have sent results to main process, then
 Main process will broadcast a number that the worker process will need to continue counting from
 Terminate once everyone reached 1000'''
+comm = MPI.COMM_WORLD
+# get number of processes
+num_proc = comm.Get_size()
+# get pid
+rank = comm.Get_rank()
 
 class Counter(base_agent):
     def __init__(self):
@@ -29,11 +34,7 @@ def count_hundred(counter):
     return counter
 
 if __name__=='__main__':
-    comm = MPI.COMM_WORLD
-    # get number of processes
-    num_proc = comm.Get_size()
-    # get pid
-    rank = comm.Get_rank()
+    
     print(rank)
     score = 0
     obj = Counter()
@@ -46,4 +47,4 @@ if __name__=='__main__':
             score = data[0]
         # Blocking call - waits until root is done processing data and broadcast results to everyone else
         score = comm.bcast(score, root=0)
-    print(score)
+        print(score)

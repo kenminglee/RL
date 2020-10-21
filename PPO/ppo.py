@@ -9,10 +9,20 @@ import torch.nn.functional as F
 import gym
 import numpy as np
 import matplotlib.pyplot as plt
+from mpi4py import MPI
+
+# env = gym.make("LunarLander-v2")
+env = gym.make("CartPole-v0")
+
+step_size = 128
+
+comm = MPI.COMM_WORLD
+# get number of processes
+num_proc = comm.Get_size()
+# get pid
+rank = comm.Get_rank()
 
 # A3C paper: https://arxiv.org/pdf/1602.01783.pdf
-
-
 class ActorCritic(nn.Module):
     def __init__(self, input_size, n_actions):
         super(ActorCritic, self).__init__()
@@ -24,24 +34,41 @@ class ActorCritic(nn.Module):
         x = F.relu(self.first_layer(x))
         return self.actor_head(x), self.critic_head(x.detach())
 
+class Observations():
+    def __init__(self):
+        if rank==0:
+            self.size = step_size*num_proc
+        else:
+            self.size = step_size
+        self.reset()
+
+    def reset(self):
+        self.state = np.zeros(size)
+        self.logp = np.zeros(size)
+        self.reward = np.zeros(size)
+        self.entropy = np.zeros(size)
+        self.counter = 0
+
+    def append(self, state, logp, reward, entropy):
+        assert self.counter<self.size
+        self.state[self.counter] = state
+        self.logp[self.counter] = logp
+        self.reward[self.counter] = reward
+        self.entropy[self.counter] = entropy
+        self.counter += 1
 
 class Agent(base_agent):
-    def __init__(self, env, gl_agent, gl_lock, semaphore, gl_count, num_processes, n_step=10, reward_decay=0.9):
+    def __init__(self, env, n_step=10, reward_decay=0.9):
         # self.device = torch.device(
         #     'cuda' if torch.cuda.is_available() else 'cpu')
         self.device = torch.device('cpu')
         self.gamma = reward_decay
         self.agent = ActorCritic(
             env.observation_space.shape[0], env.action_space.n).double().to(device=self.device)
-        self.agent.load_state_dict(gl_agent.state_dict())
-        self.gl_optim = optim.Adam(gl_agent.parameters())
+        state_dict = comm.bcast(agent.state_dict(), root=0)
+        self.agent.load_state_dict(state_dict)
         self.optim = optim.Adam(self.agent.parameters())
-        self.gl_agent = gl_agent
-        self.gl_lock = gl_lock
-        self.sem = semaphore
-        self.gl_count = gl_count
-        self.process_num = num_processes
-        self.obs = []
+        self.obs = Observations()
         self.n_step = n_step
         self.latest_log_prob = []
         self.latest_entropy = []
@@ -57,7 +84,7 @@ class Agent(base_agent):
         return a.tolist()
 
     def learn(self, s, a, r, s_, done) -> int:
-        self.obs.append((s, self.latest_log_prob.pop(), r, self.latest_entropy.pop()))
+        self.obs.append(s, self.latest_log_prob.pop(), r, self.latest_entropy.pop())
         if done or len(self.obs) >= self.n_step:
             self.perform_learning_iter(s_, done)
             self.obs = []
@@ -86,24 +113,6 @@ class Agent(base_agent):
         delta = discounted_rewards - critic_values
         loss = (torch.sum(-log_probs*(delta.detach())-0.01*entropy) \
             + 0.1*F.smooth_l1_loss(critic_values.float(), discounted_rewards.float()))/self.process_num
-        
-        self.gl_lock.acquire()
-        loss.backward()
-        for param, gl_param in zip(self.agent.parameters(), self.gl_agent.parameters()):
-            gl_param.grad = param.grad
-        self.gl_optim.step()
-        self.gl_lock.release()
-
-        with self.gl_count.get_lock():
-            self.gl_count.value += 1
-            if (self.gl_count.value==self.process_num):
-                self.sem.release()
-        self.sem.acquire()
-        self.sem.release()
-        with self.gl_count.get_lock():
-            self.gl_count.value -= 1
-            if (self.gl_count.value==0):
-                self.sem.acquire()
 
         self.agent.load_state_dict(self.gl_agent.state_dict())
 
@@ -114,9 +123,8 @@ class Agent(base_agent):
         return cumulative_reward[::-1]
 
 
-def worker(gl_agent, gl_r_per_eps, gl_solved, gl_lock, gl_print_lock, semaphore, gl_count, num_processes, worker_num, n_step):
-    # env = gym.make("LunarLander-v2")
-    env = gym.make("CartPole-v0")
+def run(env, n_step):
+    
     # env = gym.wrappers.Monitor(env, "recording", force=True)
     agent = Agent(env, gl_agent, gl_lock, semaphore, gl_count, num_processes, n_step=n_step)
     r_per_eps = []
@@ -149,39 +157,10 @@ def worker(gl_agent, gl_r_per_eps, gl_solved, gl_lock, gl_print_lock, semaphore,
 
 
 if __name__ == "__main__":
-    processes = []
-    # env = gym.make("LunarLander-v2")
-    env = gym.make("CartPole-v0")
-    # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    device = torch.device('cpu')
-    gl_agent = ActorCritic(
-        env.observation_space.shape[0], env.action_space.n).double().to(device=device)
-    gl_agent.share_memory()
-    gl_r_per_eps: "Queue[int]" = Queue()
-    gl_solved = Value('i', False)
-    gl_lock = Lock()
-    gl_print_lock = Lock()
-    semaphore = mp.Semaphore(0)
-    gl_count = mp.Value('i', 0)
-    num_processes = mp.cpu_count()
-    step_size = 128
-    for i in range(num_processes):
-        p = mp.Process(target=worker, args=(
-            gl_agent, gl_r_per_eps, gl_solved, gl_lock, gl_print_lock, 
-            semaphore, gl_count, num_processes, i, step_size))
-        p.start()
-        processes.append(p)
-    for p in processes:
-        p.join()
-    for p in processes:
-        p.terminate()
-    reward = []
-    while gl_r_per_eps.qsize() != 0:
-        reward.append(gl_r_per_eps.get())
 
-    torch.save(gl_agent, 'nstep-A2C.pt')
+    
 
-    del gl_r_per_eps, gl_solved, gl_lock, gl_agent
+    run(env)
 
     r_per_eps_x = [i+1 for i in range(len(reward))]
     r_per_eps_y = reward
