@@ -36,28 +36,35 @@ class ActorCritic(nn.Module):
         x = F.relu(self.first_layer(x))
         return self.actor_head(x), self.critic_head(x.detach())
 
-# class Observations():
-#     def __init__(self):
-#         if rank==0:
-#             self.size = step_size*num_proc
-#         else:
-#             self.size = step_size
-#         self.reset()
+class Observations():
+    def __init__(self, num_eps, step_size, obs_dim, act_dim):
+        self.size = num_eps*step_size
+        self.obs_dim = obs_dim
+        self.act_dim = act_dim
+        self.reset()
 
-#     def reset(self):
-#         self.state = np.zeros(size)
-#         self.logp = np.zeros(size)
-#         self.reward = np.zeros(size)
-#         self.entropy = np.zeros(size)
-#         self.counter = 0
+    def reset(self):
+        self.state = np.zeros([size, self.obs_dim])
+        self.reward = np.zeros(size)
+        self.action = np.zeros([size, self.act_dim])
+        self.counter, self.start_of_eps = 0, 0
 
-#     def append(self, state, logp, reward, entropy):
-#         assert self.counter<self.size
-#         self.state[self.counter] = state
-#         self.logp[self.counter] = logp
-#         self.reward[self.counter] = reward
-#         self.entropy[self.counter] = entropy
-#         self.counter += 1
+    def append(self, state, action, reward):
+        assert self.counter<self.size
+        self.state[self.counter] = state
+        self.reward[self.counter] = reward
+        self.action[self.counter] = action
+        self.counter += 1
+
+    def compute_discounted_rewards(self, gamma, next_state_val):
+        cumulative_reward = np.zeros_like(self.reward[self.start_of_eps:])
+        cumulative_reward[0] = self.reward[self.counter-1]+gamma*next_state_val
+        j = 1
+        for i in reversed(range(self.start_of_eps, self.counter-1)):
+            cumulative_reward[j] = self.reward[i] + gamma*cumulative_reward[j-1]
+            j += 1
+        self.reward[self.start_of_eps:] = cumulative_reward[::-1]
+
 
 class Agent(base_agent):
     def __init__(self, env, n_step=10, reward_decay=0.9):
@@ -77,6 +84,7 @@ class Agent(base_agent):
         self.latest_entropy = []
 
     def choose_action(self, s) -> int:
+        print(type(s))
         s = torch.tensor(s, dtype=torch.double).to(device=self.device)
         actor_logits, _ = self.agent(s)
         probs = Categorical(logits=actor_logits)
@@ -154,7 +162,7 @@ def run(env, num_eps, n_step):
         s = env.reset()
         a = agent.choose_action(s)
         total_r_in_eps = 0
-        while True:
+        while True: # In openai implementation they force the num_steps per epoch to be the same as well to prevent deadlock!
             s_, r, done, _ = env.step(a)
             a_ = agent.learn(s, a, r, s_, done)
             total_r_in_eps += r
