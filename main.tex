@@ -1,9 +1,13 @@
-\documentclass{article}
+\documentclass[12pt]{article} % set font size to 12
 \usepackage[utf8]{inputenc}
+\usepackage{indentfirst} % indent first paragraph
+\setlength{\parskip}{1em} % line spacing between paragraphs
+\setlength{\parindent}{0em} % paragraph indentation
+\usepackage[margin=0.75in]{geometry} % set custom margins
 % Allows us to have clickable references. This should be the last package to be imported!
 \usepackage{hyperref}
 
-\title{The Actual README}
+\title{Notes}
 \author{}
 \date{}
 
@@ -14,6 +18,26 @@
 
 \newpage
 
-\section{Model-based RL}
+\section{Short summary for RL Algos}
+This section focuses on summaries of RL Algorithms, how and why they work, and what are the new things they bring to field of RL.
+
+We will be skipping tabular model-based and model-free algorithms, which are mainly Value Iteration, Policy Iteration, Sarsa and Q-learning. The implementations can be found in their respective folders.
+% \subsection{Model-based RL}
+% In fully model-based RL, the most common algorithms are Value Iteration and Policy Iteration, both of which relies on solving the RL problem using dynamic programming in an iterative fashion.
+% \subsubsection{Value Iteration}
+% For value iteration, the idea is that we iterati
+\subsection{Vanilla Policy Gradient}
+The goal of policy gradient based algorithms is to find parameter $\theta$ that maximizes our objective function $J(\theta)$, of which we can write it's derivative as:
+\begin{equation}
+    \Delta_\theta\, J(\theta) = E_{\pi_\theta}\,[\Delta_\theta\,log \pi_\theta(s,a)\: Q^{\pi_\theta}(s,a)]
+\end{equation}
+
+Policy gradient based algorithms usually optimizes a policy directly.
+
+For policy gradient methods, the agent seeks to maximize 
+\section{Detailed notes}
+\subsection{Introduction}
+\subsection{Markov Decision Process}
+The aim for reinforcement learning is 
 
 \end{document}
