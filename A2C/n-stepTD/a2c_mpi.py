@@ -2,27 +2,25 @@ from base_agent import base_agent
 import torch.nn as nn
 import torch
 import torch.optim as optim
-import torch.multiprocessing as mp
 from torch.distributions import Categorical
-from torch.multiprocessing import Queue, Lock, Value, Array
 import torch.nn.functional as F
 import gym
 import numpy as np
 import matplotlib.pyplot as plt
 from mpi4py import MPI
-
-# Problem is likely that the loss that is backpropagated has loss all of its context since the params have changed (diff processes could have diff param id)
+from torch.utils.tensorboard import SummaryWriter
 
 # env = gym.make("LunarLander-v2")
 env = gym.make("CartPole-v0")
 # env = gym.wrappers.Monitor(env, "recording", force=True)
 step_size = 128
-num_eps = 1000
+num_epoch = 1000
 comm = MPI.COMM_WORLD
 # get number of processes
 num_proc = comm.Get_size()
 # get pid
 rank = comm.Get_rank()
+writer = SummaryWriter(f'runs/Proc {rank}')
 
 # A3C paper: https://arxiv.org/pdf/1602.01783.pdf
 class ActorCritic(nn.Module):
@@ -37,16 +35,15 @@ class ActorCritic(nn.Module):
         return self.actor_head(x), self.critic_head(x.detach())
 
 class Observations():
-    def __init__(self, num_eps, step_size, obs_dim, act_dim):
-        self.size = num_eps*step_size
+    def __init__(self, step_size, obs_dim):
+        self.size = step_size
         self.obs_dim = obs_dim
-        self.act_dim = act_dim
         self.reset()
 
     def reset(self):
-        self.state = np.zeros([size, self.obs_dim])
-        self.reward = np.zeros(size)
-        self.action = np.zeros([size, self.act_dim])
+        self.state = np.zeros([self.size, self.obs_dim])
+        self.reward = np.zeros(self.size)
+        self.action = np.zeros(self.size)
         self.counter, self.start_of_eps = 0, 0
 
     def append(self, state, action, reward):
@@ -58,12 +55,16 @@ class Observations():
 
     def compute_discounted_rewards(self, gamma, next_state_val):
         cumulative_reward = np.zeros_like(self.reward[self.start_of_eps:])
+        if len(cumulative_reward)<2:
+            self.start_of_eps = self.counter
+            return
         cumulative_reward[0] = self.reward[self.counter-1]+gamma*next_state_val
         j = 1
         for i in reversed(range(self.start_of_eps, self.counter-1)):
             cumulative_reward[j] = self.reward[i] + gamma*cumulative_reward[j-1]
             j += 1
         self.reward[self.start_of_eps:] = cumulative_reward[::-1]
+        self.start_of_eps = self.counter
 
 
 class Agent(base_agent):
@@ -78,53 +79,45 @@ class Agent(base_agent):
         state_dict = comm.bcast(self.agent.state_dict(), root=0)
         self.agent.load_state_dict(state_dict)
         self.optim = optim.Adam(self.agent.parameters())
-        self.obs = []
+        self.obs = Observations(n_step, env.observation_space.shape[0])
         self.n_step = n_step
-        self.latest_log_prob = []
-        self.latest_entropy = []
 
     def choose_action(self, s) -> int:
-        print(type(s))
         s = torch.tensor(s, dtype=torch.double).to(device=self.device)
         actor_logits, _ = self.agent(s)
         probs = Categorical(logits=actor_logits)
         a = probs.sample()
-        assert len(self.latest_log_prob) == 0 and len(self.latest_entropy)==0
-        self.latest_log_prob.append(probs.log_prob(a))
-        self.latest_entropy.append(probs.entropy())
         return a.tolist()
 
     def learn(self, s, a, r, s_, done) -> int:
-        self.obs.append((s, self.latest_log_prob.pop(), r, self.latest_entropy.pop()))
-        if done or len(self.obs) >= self.n_step:
-            self.perform_learning_iter(s_, done)
-            self.obs = []
+        self.obs.append(s, a, r)
+        if done:
+            self.obs.compute_discounted_rewards(self.gamma, 0)
         return 0 if done else self.choose_action(s_)
 
     def perform_learning_iter(self, s_, done):
-        self.optim.zero_grad()
-        states, log_probs, rewards, entropy = zip(*self.obs)
-        states = torch.tensor(states, dtype=torch.double).to(
-            device=self.device)
+        val = 0
         if not done:
-            _, val = self.agent(torch.tensor(
-                s_, dtype=torch.double).to(device=self.device))
-            discounted_rewards = self.convert_to_discounted_reward(
-                rewards, val.squeeze())
-        else:
-            discounted_rewards = self.convert_to_discounted_reward(rewards, 0)
+            _, val = self.agent(torch.tensor(s_, dtype=torch.double).to(device=self.device))
+        self.obs.compute_discounted_rewards(self.gamma, val)
+        assert self.obs.counter==self.n_step
+        states = torch.tensor(self.obs.state, dtype=torch.double).to(
+            device=self.device)
+        actions = torch.tensor(self.obs.action).to(device=self.device)
         discounted_rewards = torch.tensor(
-            discounted_rewards, device=self.device).squeeze()
-        log_probs = torch.stack(
-            log_probs).to(device=self.device).squeeze()
-        entropy = torch.stack(entropy).to(device=self.device).squeeze()
-        _, critic_values = self.agent(states)
+            self.obs.reward, device=self.device).squeeze()
+        actor_logits, critic_values = self.agent(states)
+        probs = Categorical(logits=actor_logits)
+        log_probs = probs.log_prob(actions)
+        entropy = probs.entropy()
+        
         critic_values = critic_values.squeeze()
         
         delta = discounted_rewards - critic_values
-        loss = (torch.sum(-log_probs*(delta.detach())-0.01*entropy) \
-            + 0.1*F.smooth_l1_loss(critic_values.float(), discounted_rewards.float()))
-        
+        actor_loss = torch.sum(-log_probs*(delta.detach())-0.01*entropy)
+        critic_loss = F.smooth_l1_loss(critic_values.float(), discounted_rewards.float())
+        loss = actor_loss + 0.1*critic_loss
+        self.optim.zero_grad()
         loss.backward()
 
         for p in self.agent.parameters():
@@ -133,6 +126,8 @@ class Agent(base_agent):
             p_grad_numpy[:] = avg_p_grad[:]
 
         self.optim.step()
+        self.obs.reset()
+        return actor_loss, critic_loss, loss
 
     # Implementation of function is exact copy of that of Spinning Up's
     def mpi_avg(self, x):
@@ -155,14 +150,15 @@ class Agent(base_agent):
         return self.agent
 
 
-def run(env, num_eps, n_step):
+def run(env, num_epoch, n_step):
     agent = Agent(env, n_step=n_step)
     r_per_eps = []
-    for _ in range(num_eps):
-        s = env.reset()
-        a = agent.choose_action(s)
-        total_r_in_eps = 0
-        while True: # In openai implementation they force the num_steps per epoch to be the same as well to prevent deadlock!
+    s = env.reset()
+    a = agent.choose_action(s)
+    total_r_in_eps = 0
+    done = False
+    for epoch in range(num_epoch):
+        for _ in range(n_step):
             s_, r, done, _ = env.step(a)
             a_ = agent.learn(s, a, r, s_, done)
             total_r_in_eps += r
@@ -170,28 +166,38 @@ def run(env, num_eps, n_step):
             a = a_
             if done:
                 r_per_eps.append(total_r_in_eps)
+                writer.add_scalars(f'process_{rank}/Reward', {"reward_per_eps":total_r_in_eps}, len(r_per_eps)-1)
                 if len(r_per_eps) % 100 == 0:
                     mean = np.mean(r_per_eps[-100:])
-                    print(rank, ': Average reward for past 100 episode',
-                          mean, 'in episode', len(r_per_eps))
-                break
+                    var = np.var(r_per_eps[-100:])
+                    print(f'{rank}: Average reward for past 100 episode {mean} in episode {len(r_per_eps)}', flush=True)
+                    writer.add_scalars(f'process_{rank}/Reward', {"mean":mean, "var":var, "reward_per_eps":total_r_in_eps}, len(r_per_eps)-1)
+                s = env.reset()
+                a = agent.choose_action(s)
+                total_r_in_eps = 0
+        actor_loss, critic_loss, loss = agent.perform_learning_iter(s_, done)
+        writer.add_scalar(f'process_{rank}/Actor Loss', actor_loss, epoch)
+        writer.add_scalar(f'process_{rank}/Crtic Loss', critic_loss, epoch)
+        writer.add_scalar(f'process_{rank}/Combined Loss', loss, epoch)
     return r_per_eps, agent.getAgent()
 
 
 if __name__ == "__main__":
 
-    r_per_eps, agent = run(env, num_eps, step_size)
-    reward = comm.gather(r_per_eps, root=0)
+    r_per_eps, agent = run(env, num_epoch, step_size)
+    # reward = comm.gather(r_per_eps, root=0)
+    writer.close()
     if rank==0:
         torch.save(agent, 'nstep-A2C.pt')
-        reward = [i for i in reward][0]
-        # print(reward)
-        r_per_eps_x = [i+1 for i in range(len(reward))]
-        r_per_eps_y = reward
-        mean_per_100_eps = [np.mean(reward[i:i+100])
-                            for i in range(0, len(reward)-100, 100)]
-        mean_per_100_eps_x = [(i+1)*100 for i in range(len(mean_per_100_eps))]
-        mean_per_100_eps_y = mean_per_100_eps
+        # reward = r_per_eps
+        # # reward = [i for i in reward][0]
+        # # print(reward)
+        # r_per_eps_x = [i+1 for i in range(len(reward))]
+        # r_per_eps_y = reward
+        # mean_per_100_eps = [np.mean(reward[i:i+100])
+        #                     for i in range(0, len(reward)-100, 100)]
+        # mean_per_100_eps_x = [(i+1)*100 for i in range(len(mean_per_100_eps))]
+        # mean_per_100_eps_y = mean_per_100_eps
 
-        plt.plot(r_per_eps_x, r_per_eps_y, mean_per_100_eps_x, mean_per_100_eps_y)
-        plt.show()
+        # plt.plot(r_per_eps_x, r_per_eps_y, mean_per_100_eps_x, mean_per_100_eps_y)
+        # plt.show()
