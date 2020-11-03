@@ -100,7 +100,7 @@ class Agent(base_agent):
         if not done:
             _, val = self.agent(torch.tensor(s_, dtype=torch.double).to(device=self.device))
         self.obs.compute_discounted_rewards(self.gamma, val)
-        assert self.obs.counter==self.n_step
+        assert self.obs.counter==self.n_step 
         states = torch.tensor(self.obs.state, dtype=torch.double).to(
             device=self.device)
         actions = torch.tensor(self.obs.action).to(device=self.device)
@@ -114,6 +114,9 @@ class Agent(base_agent):
         critic_values = critic_values.squeeze()
         
         delta = discounted_rewards - critic_values
+        mean, std = self.mpi_statistics_scalar(delta.detach().numpy())
+        delta = (delta-mean)/std
+
         actor_loss = torch.sum(-log_probs*(delta.detach())-0.01*entropy)
         critic_loss = F.smooth_l1_loss(critic_values.float(), discounted_rewards.float())
         loss = actor_loss + 0.1*critic_loss
@@ -129,16 +132,29 @@ class Agent(base_agent):
         self.obs.reset()
         return actor_loss, critic_loss, loss
 
-    # Implementation of function is exact copy of that of Spinning Up's
+    # Implementation of MPI functions are exact copies of that of Spinning Up's
     def mpi_avg(self, x):
-        global comm, num_proc
+        global num_proc
+        return self.mpi_sum(x) / num_proc
+
+    def mpi_sum(self, x):
+        global comm
         x, scalar = ([x], True) if np.isscalar(x) else (x, False)
         x = np.asarray(x, dtype=np.float32)
         buff = np.zeros_like(x, dtype=np.float32)
         # Take sum and distribute them to all processes
         comm.Allreduce(x, buff, op=MPI.SUM)
-        buff = buff[0] if scalar else buff
-        return buff / num_proc
+        return buff[0] if scalar else buff
+
+    def mpi_statistics_scalar(self, x):
+        x = np.array(x, dtype=np.float32)
+        global_sum, global_n = self.mpi_sum([np.sum(x), len(x)])
+        mean = global_sum / global_n
+
+        var = (self.mpi_sum(np.sum((x - mean)**2)))/global_n
+        std = np.sqrt(var)
+
+        return mean, std
 
     def convert_to_discounted_reward(self, rewards, next_state_val):
         cumulative_reward = [rewards[-1]+self.gamma*next_state_val]
