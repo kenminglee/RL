@@ -26,12 +26,16 @@ class ActorCritic(nn.Module):
     def __init__(self, input_size, n_actions):
         super(ActorCritic, self).__init__()
         self.first_layer = nn.Linear(input_size, 128)
-        self.critic_head = nn.Linear(128, 1)
-        self.actor_head = nn.Linear(128, n_actions)
+        self.critic_layer = nn.Linear(128, 64)
+        self.actor_layer = nn.Linear(128, 32)
+        self.critic_head = nn.Linear(64, 1)
+        self.actor_head = nn.Linear(32, n_actions)
 
     def forward(self, x):
         x = F.relu(self.first_layer(x))
-        return self.actor_head(x), self.critic_head(x.detach())
+        actor_out = F.relu(self.actor_layer(x))
+        critic_out = F.relu(self.critic_layer(x.detach()))
+        return self.actor_head(actor_out), self.critic_head(critic_out)
 
 class Observations():
     def __init__(self, step_size, obs_dim):
@@ -67,7 +71,7 @@ class Observations():
 
 
 class Agent(base_agent):
-    def __init__(self, env, n_step=10, reward_decay=0.9, clip_ratio=0.2, train_iter=15):
+    def __init__(self, env, n_step=10, reward_decay=0.99, clip_ratio=0.2, train_iter=15, lr=2.5e-4):
         # self.device = torch.device(
         #     'cuda' if torch.cuda.is_available() else 'cpu')
         global comm
@@ -79,7 +83,7 @@ class Agent(base_agent):
             env.observation_space.shape[0], env.action_space.n).double().to(device=self.device)
         state_dict = comm.bcast(self.agent.state_dict(), root=0)
         self.agent.load_state_dict(state_dict)
-        self.optim = optim.Adam(self.agent.parameters())
+        self.optim = optim.Adam(self.agent.parameters(), lr=lr)
         self.obs = Observations(n_step, env.observation_space.shape[0])
         self.n_step = n_step
 
@@ -96,7 +100,8 @@ class Agent(base_agent):
             self.obs.compute_discounted_rewards(self.gamma, 0)
         return 0 if done else self.choose_action(s_)
 
-    def perform_learning_iter(self, s_, done):
+    def perform_learning_iter(self, s_, done, epoch):
+        global rank
         val = 0
         if not done:
             _, val = self.agent(torch.tensor(s_, dtype=torch.double).to(device=self.device))
@@ -117,25 +122,27 @@ class Agent(base_agent):
 
         def calc_loss():
             actor_logits, critic_values = self.agent(states)
-            log_probs = Categorical(logits=actor_logits).log_prob(actions)
-            
+            probs = Categorical(logits=actor_logits)
+            log_probs = probs.log_prob(actions)
+            entropy = probs.entropy().mean()
             # torch.exp(log_probs-log_probs_old) == probs/probs_old !!
             ratio = torch.exp(log_probs - old_log_probs)
             clip_adv = torch.clamp(ratio, 1-self.epsilon, 1+self.epsilon) * delta
             actor_loss = -(torch.min(ratio*delta, clip_adv)).mean()
             
             critic_loss = F.smooth_l1_loss(critic_values.squeeze().float(), discounted_rewards.float())
-            loss = actor_loss + 0.1*critic_loss
+            loss = actor_loss + 0.1*critic_loss 
 
             approx_kl = (log_probs - old_log_probs).mean().item()
-            return actor_loss, critic_loss, loss, approx_kl
+            return actor_loss, critic_loss, loss, approx_kl, entropy
 
         tot_actor_loss = torch.tensor(0.0, dtype=torch.double)
         tot_critic_loss = torch.tensor(0.0, dtype=torch.double)
         tot_loss = torch.tensor(0.0, dtype=torch.double)
+        tot_entropy = torch.tensor(0.0, dtype=torch.double)
         for _ in range(self.train_iter):
             self.optim.zero_grad()  
-            actor_loss, critic_loss, loss, approx_kl = calc_loss()
+            actor_loss, critic_loss, loss, approx_kl, entropy = calc_loss()
             kl = self.mpi_avg(approx_kl)
             if kl > 1.5*0.01:
                 print('Early Stopping', flush=True)
@@ -143,7 +150,7 @@ class Agent(base_agent):
             tot_actor_loss += actor_loss
             tot_critic_loss += critic_loss
             tot_loss += loss
-
+            tot_entropy += entropy
             loss.backward()
 
             for p in self.agent.parameters():
@@ -153,7 +160,10 @@ class Agent(base_agent):
 
             self.optim.step()
         self.obs.reset()
-        return tot_actor_loss, tot_critic_loss, tot_loss
+        writer.add_scalar(f'process_{rank}/Actor Loss', tot_actor_loss, epoch)
+        writer.add_scalar(f'process_{rank}/Crtic Loss', tot_critic_loss, epoch)
+        writer.add_scalar(f'process_{rank}/Combined Loss', tot_loss, epoch)
+        writer.add_scalar(f'process_{rank}/Entropy', tot_entropy, epoch)
 
     # Implementation of MPI functions are exact copies of that of Spinning Up's
     def mpi_avg(self, x):
@@ -208,10 +218,8 @@ def run(env, num_epoch, n_step):
                 s = env.reset()
                 a = agent.choose_action(s)
                 total_r_in_eps = 0
-        actor_loss, critic_loss, loss = agent.perform_learning_iter(s_, done)
-        writer.add_scalar(f'process_{rank}/Actor Loss', actor_loss, epoch)
-        writer.add_scalar(f'process_{rank}/Crtic Loss', critic_loss, epoch)
-        writer.add_scalar(f'process_{rank}/Combined Loss', loss, epoch)
+        agent.perform_learning_iter(s_, done, epoch)
+        
     return r_per_eps, agent.getAgent()
 
 
@@ -221,7 +229,7 @@ if __name__ == "__main__":
     # reward = comm.gather(r_per_eps, root=0)
     writer.close()
     if rank==0:
-        torch.save(agent, 'nstep-A2C.pt')
+        torch.save(agent, 'ppo.pt')
         # reward = r_per_eps
         # # reward = [i for i in reward][0]
         # # print(reward)
