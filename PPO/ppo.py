@@ -124,8 +124,9 @@ class Agent(base_agent):
             actor_logits, critic_values = self.agent(states)
             probs = Categorical(logits=actor_logits)
             log_probs = probs.log_prob(actions)
-            entropy = probs.entropy().mean()
-            # torch.exp(log_probs-log_probs_old) == probs/probs_old !!
+            entropy = probs.entropy().mean() # Makes it worse for cartpole env.
+
+            # note that torch.exp(log_probs-log_probs_old) == probs/probs_old 
             ratio = torch.exp(log_probs - old_log_probs)
             clip_adv = torch.clamp(ratio, 1-self.epsilon, 1+self.epsilon) * delta
             actor_loss = -(torch.min(ratio*delta, clip_adv)).mean()
