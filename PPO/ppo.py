@@ -44,12 +44,12 @@ class Observations():
     def __init__(self, step_size, obs_dim):
         self.size = step_size
         self.obs_dim = obs_dim
+        self.state = np.zeros([self.size, self.obs_dim], dtype=np.float32)
+        self.reward = np.zeros(self.size, dtype=np.float32)
+        self.action = np.zeros(self.size)
         self.reset()
 
     def reset(self):
-        self.state = np.zeros([self.size, self.obs_dim])
-        self.reward = np.zeros(self.size)
-        self.action = np.zeros(self.size)
         self.counter, self.start_of_eps = 0, 0
 
     def append(self, state, action, reward):
@@ -134,7 +134,7 @@ class Agent(base_agent):
             clip_adv = torch.clamp(ratio, 1-self.epsilon, 1+self.epsilon) * delta
             actor_loss = -(torch.min(ratio*delta, clip_adv)).mean()
             
-            critic_loss = F.smooth_l1_loss(critic_values.squeeze().float(), discounted_rewards.float())
+            critic_loss = F.smooth_l1_loss(critic_values.squeeze(), discounted_rewards)
             loss = actor_loss + 0.1*critic_loss 
 
             approx_kl = (log_probs - old_log_probs).mean().item()
