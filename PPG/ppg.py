@@ -25,20 +25,30 @@ writer = SummaryWriter(f'runs/Proc {rank}')
 # if rank==0:
 #     env = gym.wrappers.Monitor(env, "recording", force=True)
 
-class ActorCritic(nn.Module):
+class Actor(nn.Module):
     def __init__(self, input_size, n_actions):
-        super(ActorCritic, self).__init__()
+        super(Actor, self).__init__()
         self.first_layer = nn.Linear(input_size, 128)
-        self.critic_layer = nn.Linear(128, 64)
-        self.actor_layer = nn.Linear(128, 32)
+        self.second_layer = nn.Linear(128, 64)
+        self.actor_head = nn.Linear(64, n_actions)
         self.critic_head = nn.Linear(64, 1)
-        self.actor_head = nn.Linear(32, n_actions)
 
     def forward(self, x):
         x = F.relu(self.first_layer(x))
-        actor_out = F.relu(self.actor_layer(x))
-        critic_out = F.relu(self.critic_layer(x.detach()))
-        return self.actor_head(actor_out), self.critic_head(critic_out)
+        x = F.relu(self.second_layer(x))
+        return self.actor_head(x), self.critic_head(x)
+
+class Critic(nn.Module):
+    def __init__(self, input_size, n_actions):
+        super(Critic, self).__init__()
+        self.first_layer = nn.Linear(input_size, 128)
+        self.second_layer = nn.Linear(128, 64)
+        self.critic_head = nn.Linear(64, 1)
+    
+    def forward(self, x):
+        x = F.relu(self.first_layer(x))
+        x = F.relu(self.second_layer(x))
+        return self.critic_head(x)
 
 class Observations():
     def __init__(self, step_size, obs_dim):
@@ -83,7 +93,7 @@ class Agent(base_agent):
         self.gamma = reward_decay
         self.train_iter = train_iter
         self.agent = ActorCritic(
-            env.observation_space.shape[0], env.action_space.n).double().to(device=self.device)
+            env.observation_space.shape[0], env.action_space.n).to(device=self.device)
         state_dict = comm.bcast(self.agent.state_dict(), root=0)
         self.agent.load_state_dict(state_dict)
         self.optim = optim.Adam(self.agent.parameters(), lr=lr)
@@ -91,7 +101,7 @@ class Agent(base_agent):
         self.n_step = n_step
 
     def choose_action(self, s) -> int:
-        s = torch.tensor(s, dtype=torch.double).to(device=self.device)
+        s = torch.tensor(s, dtype=torch.float32).to(device=self.device)
         actor_logits, _ = self.agent(s)
         probs = Categorical(logits=actor_logits)
         a = probs.sample()
@@ -107,10 +117,10 @@ class Agent(base_agent):
         global rank, name_of_program
         val = 0
         if not done:
-            _, val = self.agent(torch.tensor(s_, dtype=torch.double).to(device=self.device))
+            _, val = self.agent(torch.tensor(s_, dtype=torch.float32).to(device=self.device))
         self.obs.compute_discounted_rewards(self.gamma, val)
         assert self.obs.counter==self.n_step 
-        states = torch.tensor(self.obs.state, dtype=torch.double).to(
+        states = torch.tensor(self.obs.state).float().to(
             device=self.device)
         actions = torch.tensor(self.obs.action).to(device=self.device)
         discounted_rewards = torch.tensor(
@@ -140,10 +150,10 @@ class Agent(base_agent):
             approx_kl = (log_probs - old_log_probs).mean().item()
             return actor_loss, critic_loss, loss, approx_kl, entropy
 
-        tot_actor_loss = torch.tensor(0.0, dtype=torch.double)
-        tot_critic_loss = torch.tensor(0.0, dtype=torch.double)
-        tot_loss = torch.tensor(0.0, dtype=torch.double)
-        tot_entropy = torch.tensor(0.0, dtype=torch.double)
+        tot_actor_loss = torch.tensor(0.0)
+        tot_critic_loss = torch.tensor(0.0)
+        tot_loss = torch.tensor(0.0)
+        tot_entropy = torch.tensor(0.0)
         for _ in range(self.train_iter):
             self.optim.zero_grad()  
             actor_loss, critic_loss, loss, approx_kl, entropy = calc_loss()
