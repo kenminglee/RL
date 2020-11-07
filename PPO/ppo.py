@@ -10,17 +10,20 @@ import matplotlib.pyplot as plt
 from mpi4py import MPI
 from torch.utils.tensorboard import SummaryWriter
 
+name_of_program = "ppo"
 # env = gym.make("LunarLander-v2")
 env = gym.make("CartPole-v0")
-# env = gym.wrappers.Monitor(env, "recording", force=True)
+
 step_size = 128
-num_epoch = 1000
+num_epoch = 2000
 comm = MPI.COMM_WORLD
 # get number of processes
 num_proc = comm.Get_size()
 # get pid
 rank = comm.Get_rank()
 writer = SummaryWriter(f'runs/Proc {rank}')
+# if rank==0:
+#     env = gym.wrappers.Monitor(env, "recording", force=True)
 
 class ActorCritic(nn.Module):
     def __init__(self, input_size, n_actions):
@@ -101,7 +104,7 @@ class Agent(base_agent):
         return 0 if done else self.choose_action(s_)
 
     def perform_learning_iter(self, s_, done, epoch):
-        global rank
+        global rank, name_of_program
         val = 0
         if not done:
             _, val = self.agent(torch.tensor(s_, dtype=torch.double).to(device=self.device))
@@ -161,11 +164,10 @@ class Agent(base_agent):
 
             self.optim.step()
         self.obs.reset()
-        writer.add_scalar(f'process_{rank}/Actor Loss', tot_actor_loss, epoch)
-        writer.add_scalar(f'process_{rank}/Crtic Loss', tot_critic_loss, epoch)
-        writer.add_scalar(f'process_{rank}/Combined Loss', tot_loss, epoch)
-        writer.add_scalar(f'process_{rank}/Entropy', tot_entropy, epoch)
-
+        writer.add_scalars(f'process_{rank}/Actor Loss', {f"{name_of_program}":tot_actor_loss}, epoch)
+        writer.add_scalars(f'process_{rank}/Crtic Loss', {f"{name_of_program}":tot_critic_loss}, epoch)
+        writer.add_scalars(f'process_{rank}/Combined Loss', {f"{name_of_program}":tot_loss}, epoch)
+        writer.add_scalars(f'process_{rank}/Entropy', {f"{name_of_program}":tot_entropy}, epoch)
     # Implementation of MPI functions are exact copies of that of Spinning Up's
     def mpi_avg(self, x):
         global num_proc
@@ -210,12 +212,12 @@ def run(env, num_epoch, n_step):
             a = a_
             if done:
                 r_per_eps.append(total_r_in_eps)
-                writer.add_scalars(f'process_{rank}/Reward', {"reward_per_eps":total_r_in_eps}, len(r_per_eps)-1)
+                writer.add_scalars(f'process_{rank}/Reward', {f"reward_per_eps_{name_of_program}":total_r_in_eps}, len(r_per_eps)-1)
                 if len(r_per_eps) % 100 == 0:
                     mean = np.mean(r_per_eps[-100:])
                     var = np.var(r_per_eps[-100:])
                     print(f'{rank}: Average reward for past 100 episode {mean} in episode {len(r_per_eps)}', flush=True)
-                    writer.add_scalars(f'process_{rank}/Reward', {"mean":mean, "var":var, "reward_per_eps":total_r_in_eps}, len(r_per_eps)-1)
+                    writer.add_scalars(f'process_{rank}/Reward', {f"mean_{name_of_program}":mean, f"var_{name_of_program}":var, f"reward_per_eps_{name_of_program}":total_r_in_eps}, len(r_per_eps)-1)
                 s = env.reset()
                 a = agent.choose_action(s)
                 total_r_in_eps = 0

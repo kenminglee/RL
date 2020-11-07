@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 from mpi4py import MPI
 from torch.utils.tensorboard import SummaryWriter
 
+name_of_program = 'a2c'
 # env = gym.make("LunarLander-v2")
 env = gym.make("CartPole-v0")
 # env = gym.wrappers.Monitor(env, "recording", force=True)
@@ -113,7 +114,7 @@ class Agent(base_agent):
         actor_logits, critic_values = self.agent(states)
         probs = Categorical(logits=actor_logits)
         log_probs = probs.log_prob(actions)
-        entropy = probs.entropy()
+        entropy = probs.entropy().mean()
 
         critic_values = critic_values.squeeze()
         
@@ -135,7 +136,7 @@ class Agent(base_agent):
 
         self.optim.step()
         self.obs.reset()
-        return actor_loss, critic_loss, loss
+        return actor_loss, critic_loss, loss, entropy
 
     # Implementation of MPI functions are exact copies of that of Spinning Up's
     def mpi_avg(self, x):
@@ -181,19 +182,20 @@ def run(env, num_epoch, n_step):
             a = a_
             if done:
                 r_per_eps.append(total_r_in_eps)
-                writer.add_scalars(f'process_{rank}/Reward', {"reward_per_eps":total_r_in_eps}, len(r_per_eps)-1)
+                writer.add_scalars(f'process_{rank}/Reward', {f"reward_per_eps_{name_of_program}":total_r_in_eps}, len(r_per_eps)-1)
                 if len(r_per_eps) % 100 == 0:
                     mean = np.mean(r_per_eps[-100:])
                     var = np.var(r_per_eps[-100:])
                     print(f'{rank}: Average reward for past 100 episode {mean} in episode {len(r_per_eps)}', flush=True)
-                    writer.add_scalars(f'process_{rank}/Reward', {"mean":mean, "var":var, "reward_per_eps":total_r_in_eps}, len(r_per_eps)-1)
+                    writer.add_scalars(f'process_{rank}/Reward', {f"mean_{name_of_program}":mean, f"var_{name_of_program}":var, f"reward_per_eps_{name_of_program}":total_r_in_eps}, len(r_per_eps)-1)
                 s = env.reset()
                 a = agent.choose_action(s)
                 total_r_in_eps = 0
-        actor_loss, critic_loss, loss = agent.perform_learning_iter(s_, done)
-        writer.add_scalar(f'process_{rank}/Actor Loss', actor_loss, epoch)
-        writer.add_scalar(f'process_{rank}/Crtic Loss', critic_loss, epoch)
-        writer.add_scalar(f'process_{rank}/Combined Loss', loss, epoch)
+        actor_loss, critic_loss, loss, entropy = agent.perform_learning_iter(s_, done)
+        writer.add_scalars(f'process_{rank}/Actor Loss', {f"{name_of_program}":actor_loss}, epoch)
+        writer.add_scalars(f'process_{rank}/Crtic Loss', {f"{name_of_program}":critic_loss}, epoch)
+        writer.add_scalars(f'process_{rank}/Combined Loss', {f"{name_of_program}":loss}, epoch)
+        writer.add_scalars(f'process_{rank}/Entropy', {f"{name_of_program}":entropy}, epoch)
     return r_per_eps, agent.getAgent()
 
 
