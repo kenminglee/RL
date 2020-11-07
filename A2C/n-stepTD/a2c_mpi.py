@@ -10,11 +10,11 @@ import matplotlib.pyplot as plt
 from mpi4py import MPI
 from torch.utils.tensorboard import SummaryWriter
 
-env = gym.make("LunarLander-v2")
-# env = gym.make("CartPole-v0")
+# env = gym.make("LunarLander-v2")
+env = gym.make("CartPole-v0")
 # env = gym.wrappers.Monitor(env, "recording", force=True)
 step_size = 128
-num_epoch = 3500
+num_epoch = 2000
 comm = MPI.COMM_WORLD
 # get number of processes
 num_proc = comm.Get_size()
@@ -27,12 +27,16 @@ class ActorCritic(nn.Module):
     def __init__(self, input_size, n_actions):
         super(ActorCritic, self).__init__()
         self.first_layer = nn.Linear(input_size, 128)
-        self.critic_head = nn.Linear(128, 1)
-        self.actor_head = nn.Linear(128, n_actions)
+        self.critic_layer = nn.Linear(128, 64)
+        self.actor_layer = nn.Linear(128, 32)
+        self.critic_head = nn.Linear(64, 1)
+        self.actor_head = nn.Linear(32, n_actions)
 
     def forward(self, x):
         x = F.relu(self.first_layer(x))
-        return self.actor_head(x), self.critic_head(x.detach())
+        actor_out = F.relu(self.actor_layer(x))
+        critic_out = F.relu(self.critic_layer(x.detach()))
+        return self.actor_head(actor_out), self.critic_head(critic_out)
 
 class Observations():
     def __init__(self, step_size, obs_dim):
@@ -68,7 +72,7 @@ class Observations():
 
 
 class Agent(base_agent):
-    def __init__(self, env, n_step=10, reward_decay=0.9):
+    def __init__(self, env, n_step=10, reward_decay=0.9, lr=5e-4):
         # self.device = torch.device(
         #     'cuda' if torch.cuda.is_available() else 'cpu')
         global comm
@@ -78,7 +82,7 @@ class Agent(base_agent):
             env.observation_space.shape[0], env.action_space.n).double().to(device=self.device)
         state_dict = comm.bcast(self.agent.state_dict(), root=0)
         self.agent.load_state_dict(state_dict)
-        self.optim = optim.Adam(self.agent.parameters())
+        self.optim = optim.Adam(self.agent.parameters(), lr=lr)
         self.obs = Observations(n_step, env.observation_space.shape[0])
         self.n_step = n_step
 
@@ -110,14 +114,15 @@ class Agent(base_agent):
         probs = Categorical(logits=actor_logits)
         log_probs = probs.log_prob(actions)
         entropy = probs.entropy()
-        
+
         critic_values = critic_values.squeeze()
         
         delta = discounted_rewards - critic_values
         mean, std = self.mpi_statistics_scalar(delta.detach().numpy())
         delta = (delta-mean)/std
 
-        actor_loss = torch.sum(-log_probs*(delta.detach())-0.01*entropy)
+        # actor_loss = (-log_probs*(delta.detach())-0.01*entropy).mean()
+        actor_loss = (-log_probs*(delta.detach())).mean()
         critic_loss = F.smooth_l1_loss(critic_values.float(), discounted_rewards.float())
         loss = actor_loss + 0.1*critic_loss
         self.optim.zero_grad()
@@ -155,12 +160,6 @@ class Agent(base_agent):
         std = np.sqrt(var)
 
         return mean, std
-
-    def convert_to_discounted_reward(self, rewards, next_state_val):
-        cumulative_reward = [rewards[-1]+self.gamma*next_state_val]
-        for reward in reversed(rewards[:-1]):
-            cumulative_reward.append(reward + self.gamma*cumulative_reward[-1])
-        return cumulative_reward[::-1]
     
     def getAgent(self):
         return self.agent
