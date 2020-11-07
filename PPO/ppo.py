@@ -15,7 +15,7 @@ name_of_program = "ppo"
 env = gym.make("CartPole-v0")
 
 step_size = 128
-num_epoch = 2000
+num_epoch = 1000
 comm = MPI.COMM_WORLD
 # get number of processes
 num_proc = comm.Get_size()
@@ -83,7 +83,7 @@ class Agent(base_agent):
         self.gamma = reward_decay
         self.train_iter = train_iter
         self.agent = ActorCritic(
-            env.observation_space.shape[0], env.action_space.n).double().to(device=self.device)
+            env.observation_space.shape[0], env.action_space.n).to(device=self.device)
         state_dict = comm.bcast(self.agent.state_dict(), root=0)
         self.agent.load_state_dict(state_dict)
         self.optim = optim.Adam(self.agent.parameters(), lr=lr)
@@ -91,7 +91,7 @@ class Agent(base_agent):
         self.n_step = n_step
 
     def choose_action(self, s) -> int:
-        s = torch.tensor(s, dtype=torch.double).to(device=self.device)
+        s = torch.tensor(s, dtype=torch.float32).to(device=self.device)
         actor_logits, _ = self.agent(s)
         probs = Categorical(logits=actor_logits)
         a = probs.sample()
@@ -107,10 +107,10 @@ class Agent(base_agent):
         global rank, name_of_program
         val = 0
         if not done:
-            _, val = self.agent(torch.tensor(s_, dtype=torch.double).to(device=self.device))
+            _, val = self.agent(torch.tensor(s_, dtype=torch.float32).to(device=self.device))
         self.obs.compute_discounted_rewards(self.gamma, val)
         assert self.obs.counter==self.n_step 
-        states = torch.tensor(self.obs.state, dtype=torch.double).to(
+        states = torch.tensor(self.obs.state).float().to(
             device=self.device)
         actions = torch.tensor(self.obs.action).to(device=self.device)
         discounted_rewards = torch.tensor(
@@ -140,10 +140,10 @@ class Agent(base_agent):
             approx_kl = (log_probs - old_log_probs).mean().item()
             return actor_loss, critic_loss, loss, approx_kl, entropy
 
-        tot_actor_loss = torch.tensor(0.0, dtype=torch.double)
-        tot_critic_loss = torch.tensor(0.0, dtype=torch.double)
-        tot_loss = torch.tensor(0.0, dtype=torch.double)
-        tot_entropy = torch.tensor(0.0, dtype=torch.double)
+        tot_actor_loss = torch.tensor(0.0)
+        tot_critic_loss = torch.tensor(0.0)
+        tot_loss = torch.tensor(0.0)
+        tot_entropy = torch.tensor(0.0)
         for _ in range(self.train_iter):
             self.optim.zero_grad()  
             actor_loss, critic_loss, loss, approx_kl, entropy = calc_loss()
