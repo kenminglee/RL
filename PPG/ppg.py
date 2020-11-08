@@ -54,12 +54,12 @@ class Observations():
     def __init__(self, step_size, obs_dim):
         self.size = step_size
         self.obs_dim = obs_dim
+        self.state = np.zeros([self.size, self.obs_dim], dtype=np.float32)
+        self.reward = np.zeros(self.size, dtype=np.float32)
+        self.action = np.zeros(self.size)
         self.reset()
 
     def reset(self):
-        self.state = np.zeros([self.size, self.obs_dim])
-        self.reward = np.zeros(self.size)
-        self.action = np.zeros(self.size)
         self.counter, self.start_of_eps = 0, 0
 
     def append(self, state, action, reward):
@@ -84,25 +84,34 @@ class Observations():
 
 
 class Agent(base_agent):
-    def __init__(self, env, n_step=10, reward_decay=0.99, clip_ratio=0.2, train_iter=15, lr=2.5e-4):
+    def __init__(self, env, n_step=10, reward_decay=0.99, clip_ratio=0.2, 
+    policy_epoch=1, value_epoch=1, aux_epoch=6, lr=5e-4, beta_clone=1):
         # self.device = torch.device(
         #     'cuda' if torch.cuda.is_available() else 'cpu')
         global comm
         self.device = torch.device('cpu')
         self.epsilon = clip_ratio
         self.gamma = reward_decay
-        self.train_iter = train_iter
-        self.agent = ActorCritic(
+        self.policy_epoch = policy_epoch
+        self.value_epoch = value_epoch
+        self.aux_epoch = aux_epoch
+        self.beta_clone = beta_clone
+        self.actor = Actor(
             env.observation_space.shape[0], env.action_space.n).to(device=self.device)
-        state_dict = comm.bcast(self.agent.state_dict(), root=0)
-        self.agent.load_state_dict(state_dict)
-        self.optim = optim.Adam(self.agent.parameters(), lr=lr)
+        self.critic = Critic(
+            env.observation_space.shape[0], env.action_space.n).to(device=self.device)
+        actor_state_dict = comm.bcast(self.actor.state_dict(), root=0)
+        self.actor.load_state_dict(actor_state_dict)
+        critic_state_dict = comm.bcast(self.critic.state_dict(), root=0)
+        self.critic.load_state_dict(critic_state_dict)
+        self.actor_optim = optim.Adam(self.actor.parameters(), lr=lr)
+        self.critic_optim = optim.Adam(self.critic.parameters(), lr=lr)
         self.obs = Observations(n_step, env.observation_space.shape[0])
         self.n_step = n_step
 
     def choose_action(self, s) -> int:
         s = torch.tensor(s, dtype=torch.float32).to(device=self.device)
-        actor_logits, _ = self.agent(s)
+        actor_logits, _ = self.actor(s)
         probs = Categorical(logits=actor_logits)
         a = probs.sample()
         return a.tolist()
@@ -113,19 +122,30 @@ class Agent(base_agent):
             self.obs.compute_discounted_rewards(self.gamma, 0)
         return 0 if done else self.choose_action(s_)
 
-    def perform_learning_iter(self, s_, done, epoch):
+    def update(self, s_, done, epoch, update_aux=False):
         global rank, name_of_program
         val = 0
         if not done:
-            _, val = self.agent(torch.tensor(s_, dtype=torch.float32).to(device=self.device))
+            val = self.critic(torch.tensor(s_, dtype=torch.float32).to(device=self.device))
         self.obs.compute_discounted_rewards(self.gamma, val)
         assert self.obs.counter==self.n_step 
         states = torch.tensor(self.obs.state).float().to(
             device=self.device)
         actions = torch.tensor(self.obs.action).to(device=self.device)
+        mean, std = self.mpi_statistics_scalar(self.obs.reward)
         discounted_rewards = torch.tensor(
             self.obs.reward, device=self.device).squeeze()
-        actor_logits, critic_values = self.agent(states)
+        discounted_rewards = ((discounted_rewards-mean)/std)
+        
+        self.update_policy_phase(states, actions, discounted_rewards, epoch)
+        if update_aux:
+            self.update_aux_phase(states, actions, discounted_rewards, epoch)
+        self.obs.reset()
+        
+    
+    def update_policy_phase(self, states, actions, discounted_rewards, epoch):
+        actor_logits, _ = self.actor(states)
+        critic_values = self.critic(states)
         old_log_probs = Categorical(logits=actor_logits).log_prob(actions).detach()
         
         # Calc advantage
@@ -133,51 +153,77 @@ class Agent(base_agent):
         mean, std = self.mpi_statistics_scalar(delta.detach().numpy())
         delta = ((delta-mean)/std).detach()
 
-        def calc_loss():
-            actor_logits, critic_values = self.agent(states)
-            probs = Categorical(logits=actor_logits)
-            log_probs = probs.log_prob(actions)
-            entropy = probs.entropy().mean() # Makes it worse for cartpole env.
+        def calc_policy_loss():
+            actor_logits, _ = self.actor(states)
+            dist = Categorical(logits=actor_logits)
+            log_probs = dist.log_prob(actions)
+            entropy = dist.entropy().mean() # Makes it worse for cartpole env.
 
             # note that torch.exp(log_probs-log_probs_old) == probs/probs_old 
             ratio = torch.exp(log_probs - old_log_probs)
             clip_adv = torch.clamp(ratio, 1-self.epsilon, 1+self.epsilon) * delta
             actor_loss = -(torch.min(ratio*delta, clip_adv)).mean()
             
-            critic_loss = F.smooth_l1_loss(critic_values.squeeze().float(), discounted_rewards.float())
-            loss = actor_loss + 0.1*critic_loss 
-
             approx_kl = (log_probs - old_log_probs).mean().item()
-            return actor_loss, critic_loss, loss, approx_kl, entropy
+            return actor_loss, approx_kl, entropy
+        
 
-        tot_actor_loss = torch.tensor(0.0)
-        tot_critic_loss = torch.tensor(0.0)
-        tot_loss = torch.tensor(0.0)
-        tot_entropy = torch.tensor(0.0)
-        for _ in range(self.train_iter):
-            self.optim.zero_grad()  
-            actor_loss, critic_loss, loss, approx_kl, entropy = calc_loss()
+        for _ in range(self.policy_epoch): 
+            actor_loss, approx_kl, entropy = calc_policy_loss()
             kl = self.mpi_avg(approx_kl)
             if kl > 1.5*0.01:
                 print('Early Stopping', flush=True)
                 break
-            tot_actor_loss += actor_loss
-            tot_critic_loss += critic_loss
-            tot_loss += loss
-            tot_entropy += entropy
-            loss.backward()
+            
+            self.actor_optim.zero_grad() 
+            actor_loss.backward()
+            for p in self.actor.parameters():
+                if p.grad is not None: # during policy phase aux head will not be reached!
+                    p_grad_numpy = p.grad.numpy()
+                    avg_p_grad = self.mpi_avg(p.grad)
+                    p_grad_numpy[:] = avg_p_grad[:]
+            self.actor_optim.step()
+        
+        for _ in range(self.value_epoch):
+            self.update_critic_once(states, actions, discounted_rewards, epoch)
 
-            for p in self.agent.parameters():
+        # writer.add_scalars(f'process_{rank}/Actor Loss', {f"{name_of_program}":tot_actor_loss}, epoch)
+        # writer.add_scalars(f'process_{rank}/Crtic Loss', {f"{name_of_program}":tot_critic_loss}, epoch)
+        # writer.add_scalars(f'process_{rank}/Combined Loss', {f"{name_of_program}":tot_loss}, epoch)
+        # writer.add_scalars(f'process_{rank}/Entropy', {f"{name_of_program}":tot_entropy}, epoch)
+
+    def update_aux_phase(self, states, actions, discounted_rewards, epoch):
+        old_actor_logits, _ = self.actor(states)
+        old_probs = Categorical(logits=old_actor_logits).probs.detach()
+        for _ in range(self.aux_epoch):
+            actor_logits, aux = self.actor(states)
+            aux_loss = F.smooth_l1_loss(aux.squeeze(), discounted_rewards)
+            log_probs = Categorical(logits=actor_logits).probs.log()
+            kl = self.beta_clone * F.kl_div(log_probs, old_probs)
+            joint_loss = 0.1*(aux_loss + kl)
+
+            self.actor_optim.zero_grad() 
+            joint_loss.backward()
+            for p in self.actor.parameters():
                 p_grad_numpy = p.grad.numpy()
                 avg_p_grad = self.mpi_avg(p.grad)
                 p_grad_numpy[:] = avg_p_grad[:]
+            self.actor_optim.step()
+            
+            self.update_critic_once(states, actions, discounted_rewards, epoch)
 
-            self.optim.step()
-        self.obs.reset()
-        writer.add_scalars(f'process_{rank}/Actor Loss', {f"{name_of_program}":tot_actor_loss}, epoch)
-        writer.add_scalars(f'process_{rank}/Crtic Loss', {f"{name_of_program}":tot_critic_loss}, epoch)
-        writer.add_scalars(f'process_{rank}/Combined Loss', {f"{name_of_program}":tot_loss}, epoch)
-        writer.add_scalars(f'process_{rank}/Entropy', {f"{name_of_program}":tot_entropy}, epoch)
+    def update_critic_once(self, states, actions, discounted_rewards, epoch):
+        critic_values = self.critic(states)
+        critic_loss = F.smooth_l1_loss(critic_values.squeeze(), discounted_rewards)
+
+        self.critic_optim.zero_grad()  
+        critic_loss.backward()
+        for p in self.critic.parameters():
+            p_grad_numpy = p.grad.numpy()
+            avg_p_grad = self.mpi_avg(p.grad)
+            p_grad_numpy[:] = avg_p_grad[:]
+        self.critic_optim.step()
+
     # Implementation of MPI functions are exact copies of that of Spinning Up's
     def mpi_avg(self, x):
         global num_proc
@@ -203,10 +249,10 @@ class Agent(base_agent):
         return mean, std
     
     def getAgent(self):
-        return self.agent
+        return self.actor
 
 
-def run(env, num_epoch, n_step):
+def run(env, num_epoch, n_step, aux_update_freq=32):
     agent = Agent(env, n_step=n_step)
     r_per_eps = []
     s = env.reset()
@@ -231,7 +277,8 @@ def run(env, num_epoch, n_step):
                 s = env.reset()
                 a = agent.choose_action(s)
                 total_r_in_eps = 0
-        agent.perform_learning_iter(s_, done, epoch)
+        agent.update(s_, done, epoch, update_aux=epoch%aux_update_freq==0)
+
         
     return r_per_eps, agent.getAgent()
 
@@ -242,7 +289,7 @@ if __name__ == "__main__":
     # reward = comm.gather(r_per_eps, root=0)
     writer.close()
     if rank==0:
-        torch.save(agent, 'ppo.pt')
+        torch.save(agent, 'ppg.pt')
         # reward = r_per_eps
         # # reward = [i for i in reward][0]
         # # print(reward)
