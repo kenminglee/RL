@@ -31,9 +31,9 @@ We will be skipping tabular model-based and model-free algorithms, which are mai
 % \subsubsection{Value Iteration}
 % For value iteration, the idea is that we iterati
 \section{Vanilla Policy Gradient}
-The goal of policy gradient based algorithms is to find parameter $\theta$ that maximizes our objective function $J(\theta)$, of which we can write it's derivative as:
+The goal of policy gradient based algorithms is to find parameter $\theta$ that maximizes our objective function $J(\theta)$, where:
 \begin{equation*}
-    \nabla_\theta\, J(\theta) = E_{\pi_\theta}\,[\nabla_\theta\,log \pi_\theta(s,a)\: Q^{\pi_\theta}(s,a)]
+    J(\theta) = E_{\pi_\theta}\,[log\,\pi_\theta(s,a)\: Q^{\pi_\theta}(s,a)]
 \end{equation*}
 % where
 % \begin{itemize}
@@ -103,7 +103,7 @@ To reduce variance of $Q_w(s,a)$, we subtract a baseline function, $B(s)$, from 
 
 A good baseline is the state value function $B(s)=V^\pi_\theta(s)$, such that $A^\pi_\theta(s,a) = Q^\pi_\theta(s,a) - V^\pi_\theta(s)$. Since $Q^\pi_\theta(s,a)=r+\gamma V(s')$, we realize that our advantage function can be our TD error $\delta$.
 
-\section{Asynchronous Actor Critic Methods - A3C \& A2C}
+\section{A3C \& A2C}
 Problems that A3C tries to solve:
 \begin{itemize}
     \item Neural networks suffer from high variance, and as a result poor convergence, for online RL updates. This is due to strongly correlated data (i.e. frames from a video game).
@@ -112,7 +112,7 @@ Problems that A3C tries to solve:
 Key ideas that A3C introduces:
 \begin{itemize}
     \item Shared architecture between the actor and the critic
-    \item Update on fixed-length segments of experience (n-step TD)
+    \item Update on fixed-length segments of experience (forward-view n-step TD($\lambda$) instead of MC)
     \item Parallel worker threads, each with separate instances of the environment help decorrelate data
 \end{itemize}
 
@@ -121,5 +121,28 @@ The major difference between them is that for A3C, worker threads update the mai
 
 A2C is shown to be able to utilize GPUs better (larger batch size), and prevents worker threads from using older versions of the main network.
 
-% \section{PPO - Proximal Policy Optimization}
+\section{PPO - Proximal Policy Optimization}
+Similar to TRPO, PPO is motivated by the question - how can we take the largest improvement step on a policy using a data without causing performance collapse? PPO introduces 2 main ideas:
+\begin{enumerate}
+    \item \textbf{Clipped Surrogate Objective}\\
+    Similar to TRPO, our objective function is 
+    \begin{equation*}
+    \begin{split}
+        J(\theta) &= E_t[\frac{\pi_\theta(a_t|s_t)}{\pi_{\theta_{old}}(a_t|s_t)}A_t] \\
+        &= E[r_t(\theta)A_t]
+    \end{split}
+    \end{equation*}
+    The difference is that while TRPO uses KL Divergence constraints to limit $r(\theta)$, PPO uses the Clipped Surrogate Objective
+    \begin{equation*}
+        J(\theta) = E_t\;[min\,(r_t(\theta)\,A_t, \: clip\,(r_t(\theta),\, 1-\epsilon,\, 1+\epsilon)A_t)]
+    \end{equation*}
+    \item \textbf{Multiple Epochs Policy Update}\\
+    Since our objective function is essentially clipped, this enables PPO to perform gradient ascend on the policy multiple epochs per iteration, without taking steps that are too large. This increases sampling efficiency.
+\end{enumerate}
+\begin{figure}
+    \centering
+    \includegraphics[width=0.6\textwidth]{images/ppo_cartpole.png}
+    \caption{PPO algorithm converges completely in Cartpole environment in 400 episodes, running on 4 separate processes.}
+    \label{fig:my_label}
+\end{figure}
 \end{document}
