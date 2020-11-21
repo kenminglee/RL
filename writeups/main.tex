@@ -1,4 +1,4 @@
-\documentclass[12pt]{article} % set font size to 12
+\documentclass[11pt]{article} % set font size to 12
 \usepackage[utf8]{inputenc}
 \usepackage{indentfirst} % indent first paragraph
 \setlength{\parskip}{1em} % line spacing between paragraphs
@@ -11,7 +11,7 @@
 % Allows us to have clickable references. This should be the last package to be imported!
 \usepackage{hyperref}
 
-\title{Short Summary of RL Algos}
+\title{Experimentation With RL Algorithms}
 \author{}
 \date{}
 
@@ -23,30 +23,36 @@
 \newpage
 
 \section{Introduction}
-This section focuses on summaries of RL Algorithms, how and why they work, and what are the new things they bring to field of RL.
+This writeup focuses on summaries of reinforcement learning (RL) algorithms, how and why they work, and what are the new things they bring to field of RL.
 
-We will be skipping tabular model-based and model-free algorithms, which are mainly Value Iteration, Policy Iteration, Sarsa and Q-learning. The implementations can be found in their respective folders.
+We will be skipping tabular model-based and model-free algorithms, which includes Value Iteration, Policy Iteration, Sarsa and Q-learning. The implementations can be found in their respective folders.
 % \subsection{Model-based RL}
 % In fully model-based RL, the most common algorithms are Value Iteration and Policy Iteration, both of which relies on solving the RL problem using dynamic programming in an iterative fashion.
 % \subsubsection{Value Iteration}
 % For value iteration, the idea is that we iterati
-\section{Vanilla Policy Gradient}
+\section{Vanilla Policy Gradient (REINFORCE)}
 The goal of policy gradient based algorithms is to find parameter $\theta$ that maximizes our objective function $J(\theta)$, where:
 \begin{equation*}
     J(\theta) = E_{\pi_\theta}\,[log\,\pi_\theta(s,a)\: Q^{\pi_\theta}(s,a)]
 \end{equation*}
+\begin{figure}
+    \centering
+    \includegraphics[width=0.7\textwidth]{vanilla_policy_gradient/Solved_cartpole_1100eps.png}
+    \caption{Cartpole environment solved in 1100 episodes using REINFORCE}
+    % \label{fig:my_label}
+\end{figure}
 % where
 % \begin{itemize}
 %     \item $log\,\pi_\theta(s,a)$ represents taking the logarithm of the probability of taking action $a$ in state $s$. This term tells us how large of a step we should take.
 %     \item $Q^{\pi_\theta}(s,a)$ represents our value estimation of taking action $a$ in state $s$. This term tell us how good the particular action was.
 % \end{itemize}
 
-In Monte Carlo Policy gradient algorithms, we optimize a policy directly. Due to the lack of a discrete value function approximator that tells us $Q^{\pi_\theta}(s,a)$, in MC policy gradient methods we obtain our estimation of the value of taking an action in a state using discounted cumulative reward, $R = ...+\gamma^2 r_{T-1} + \gamma r_T$. This accounts to greater stability compared to value approximation algorithms - where a small shift in value might cause a large change in the actions we take.
+Conceptually, policy gradient methods are usually more stable then methods that rely purely on value approximation. However, due to the lack of a discrete value function approximator to tell us $Q^{\pi_\theta}(s,a)$, in REINFORCE we obtain our estimation of the value using discounted cumulative reward, $R = ...+\gamma^{T-2} r_{T-1} + \gamma^{T-1} r_T$. This results in an unbiased, but noisy agent caused by high variance of the cumulative reward. 
 
-However, the caveat that comes with using the discounted cumulative reward as our value approximation is that while it is low bias (since we calculate our value based on actual rewards returned by the environment), it is very high in variance (e.g. if there was a particular episode that ended in a high reward, every action in the trajectory of that episode will be correlated to being good, even if we might have made some bad moves). Also, depending on the environment, the variance of the cumulative discounted reward might be very high.  
+% However, the caveat that comes with using the discounted cumulative reward as our value approximation is that while it is low bias (since we calculate our value based on actual rewards returned by the environment), it is very high in variance (e.g. if there was a particular episode that ended in a high reward, every action in the trajectory of that episode will be correlated to being good, even if we might have made some bad moves). Also, depending on the environment, the variance of the cumulative discounted reward might be very high.  
 
-\section{Deep Q-Network}
-As the name implies, DQN uses Q-learning, but with a value function approximator (commonly a deep neural network) instead of a table. The loss function that we try to minimize for is as follows:
+\section{Deep Q-Network (DQN)}
+DQN uses Q-learning, but with a value function approximator (commonly a deep neural network) instead of a table. The loss function that we try to minimize for is as follows:
 \begin{equation*}
     \mathcal{L}_i(w_i) = E_{s, a, r, s'}[(r + \gamma\,max_{a'}Q(s', a'; w_i^-) - Q(s, a; w_i))^2]
 \end{equation*}
@@ -74,12 +80,19 @@ The dueling architecture introduces two separate streams sharing the same networ
   \label{fig:duelingarch}
 \end{wrapfigure}
 
-The main idea is that it may not be always be important to know the value of every action given a state. The original paper explains this point well.
+The main idea is that it may not always be important to know the value of every action given a state; rather they are only important when they determine a course of action.
 
 The only modification required is to the output of our network, where 
 \begin{equation*}
     Q(s,a;\theta,\alpha,\beta) = V(s; \theta, \beta) + (A(s,a,;\theta,\alpha) - \frac{1}{|A|}\sum_{a'}\, A(s,a';\theta,\alpha))
 \end{equation*}
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.8\textwidth]{DQN/Dueling-Double_w_ER_FixedQ/cartpole/1700eps_cartpole.png}
+    \caption{DDQN with Dueling Architecture solved Cartpole in 1700 episodes}
+    \label{fig:my_label}
+\end{figure}
 
 \subsection{Prioritized Experience Replay}
 Vanilla DQN uniformly samples from the experience replay buffer, which is not ideal since it may not always pick the most valuable information to learn from (i.e. largest TD error $\delta$).
@@ -92,8 +105,9 @@ To reduce bias caused by sampling high priority experiences more than lower prio
 \begin{equation*}
     w_i = (\frac{1}{N}\frac{1}{P(i)})^\beta
 \end{equation*}
+
 \section{Actor Critic Methods}
-Policy gradient methods are low in bias, but it suffers from high variance since it cannot bootstrap.
+Vanilla policy gradient methods like REINFORCE are low in bias, but it suffers from high variance since it cannot bootstrap from itself.
 
 Value-function approximation methods like DQN have lower variance (from bootstrapping), but as a result introduces bias.
 
@@ -106,8 +120,8 @@ A good baseline is the state value function $B(s)=V^\pi_\theta(s)$, such that $A
 \section{A3C \& A2C}
 Problems that A3C tries to solve:
 \begin{itemize}
-    \item Neural networks suffer from high variance, and as a result poor convergence, for online RL updates. This is due to strongly correlated data (i.e. frames from a video game).
-    \item Experience replay buffers uses more memory and computation, and limits only to offline algorithms (where data can first be decorrelated).
+    \item Highly correlated data (e.g. frames from video games) meant that neural networks suffer from high variance, and thus converges poorly.
+    \item Experience replay buffers use more memory and computation, and limits only to offline algorithms (where data can first be decorrelated).
 \end{itemize}
 Key ideas that A3C introduces:
 \begin{itemize}
@@ -115,6 +129,13 @@ Key ideas that A3C introduces:
     \item Update on fixed-length segments of experience (forward-view n-step TD($\lambda$) instead of MC)
     \item Parallel worker threads, each with separate instances of the environment help decorrelate data
 \end{itemize}
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.8\textwidth]{A3C/cartpole-MC/cartpole_800eps.png}
+    \caption{Cartpole environment solved in 800 episode using A3C, running on 4 parallel workers.}
+    \label{fig:my_label}
+\end{figure}
 
 \subsection{Difference between A2C \& A3C}
 The major difference between them is that for A3C, worker threads update the main, shared network in an asynchronous fashion, while A2C waits for all actors to complete their segments, before updating the main network, by taking the average over all actors.
@@ -141,8 +162,10 @@ Similar to TRPO, PPO is motivated by the question - how can we take the largest 
 \end{enumerate}
 \begin{figure}
     \centering
-    \includegraphics[width=0.6\textwidth]{images/ppo_cartpole.png}
+    \includegraphics[width=0.8\textwidth]{images/ppo_cartpole.png}
     \caption{PPO algorithm converges completely in Cartpole environment in 400 episodes, running on 4 separate processes.}
     \label{fig:my_label}
 \end{figure}
 \end{document}
+
+\section{PPG - Phasic Policy Gradient}
