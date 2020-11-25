@@ -23,16 +23,16 @@
 \newpage
 
 \section{Introduction}
-This writeup focuses on summaries of reinforcement learning (RL) algorithms, and notable implementation details.
+This writeup focuses on summaries of reinforcement learning (RL) algorithms, and notable implementation details of them. The implementation of algorithms described in this document can be found in \url{https://github.com/leeming99/RL}
 
-
-We will be skipping tabular model-based and model-free algorithms, which includes Value Iteration, Policy Iteration, Sarsa and Q-learning. The implementations can be found in their respective folders.
-% \subsection{Model-based RL}
+We will be skipping explanation on tabular model-based and model-free RL algorithms, which includes Value Iteration, Policy Iteration, Sarsa and Q-learning. Implementations of these algorithms can be found in their respective folders.
+% \subsubsection{Model-based RL}
 % In fully model-based RL, the most common algorithms are Value Iteration and Policy Iteration, both of which relies on solving the RL problem using dynamic programming in an iterative fashion.
-% \subsubsection{Value Iteration}
+% \subsubsubsection{Value Iteration}
 % For value iteration, the idea is that we iterati
-\section{Vanilla Policy Gradient (REINFORCE)}
-The goal of policy gradient based algorithms is to find parameter $\theta$ that maximizes our objective function $J(\theta)$, where:
+\section{Algorithms}
+\subsection{Vanilla Policy Gradient (REINFORCE)}
+The goal of policy gradient based algorithms is to find parameter $\theta$ that maximizes our objective function:
 \begin{equation*}
     J(\theta) = E_{\pi_\theta}\,[log\,\pi_\theta(s,a)\: Q^{\pi_\theta}(s,a)]
 \end{equation*}
@@ -42,17 +42,9 @@ The goal of policy gradient based algorithms is to find parameter $\theta$ that 
     \caption{Cartpole environment solved in 1100 episodes using REINFORCE}
     % \label{fig:my_label}
 \end{figure}
-% where
-% \begin{itemize}
-%     \item $log\,\pi_\theta(s,a)$ represents taking the logarithm of the probability of taking action $a$ in state $s$. This term tells us how large of a step we should take.
-%     \item $Q^{\pi_\theta}(s,a)$ represents our value estimation of taking action $a$ in state $s$. This term tell us how good the particular action was.
-% \end{itemize}
+The REINFORCE algorithm \cite{reinforce} optimizes the policy directly, using the discounted cumulative return, $R_t = \sum_{l=0}^\infty \gamma^l r_{t+l}$ as the best estimate of $Q^{\pi_\theta}(s,a)$. Relying on $R_t$ as our estimate of $Q^{\pi}(s,a)$ gives us a low bias but high variance estimate. 
 
-Conceptually, policy gradient methods are usually more stable then methods that rely purely on value approximation. However, due to the lack of a discrete value function approximator to tell us $Q^{\pi_\theta}(s,a)$, in REINFORCE we obtain our estimation of the value using discounted cumulative reward, $R = ...+\gamma^{T-2} r_{T-1} + \gamma^{T-1} r_T$. This results in an unbiased, but noisy agent caused by high variance of the cumulative reward. 
-
-% However, the caveat that comes with using the discounted cumulative reward as our value approximation is that while it is low bias (since we calculate our value based on actual rewards returned by the environment), it is very high in variance (e.g. if there was a particular episode that ended in a high reward, every action in the trajectory of that episode will be correlated to being good, even if we might have made some bad moves). Also, depending on the environment, the variance of the cumulative discounted reward might be very high.  
-
-\section{Deep Q-Network (DQN)}
+\subsection{Deep Q-Network (DQN)}
 DQN uses Q-learning, but with a value function approximator (commonly a deep neural network) instead of a table. The loss function that we try to minimize for is as follows:
 \begin{equation*}
     \mathcal{L}_i(w_i) = E_{s, a, r, s'}[(r + \gamma\,max_{a'}Q(s', a'; w_i^-) - Q(s, a; w_i))^2]
@@ -62,7 +54,7 @@ DQN works because of:
     \item Experience replay buffer - this allows us to be a lot more sample efficient 
     \item Fixed Q-targets - stability during training is achieved by maintaining two different versions of the network (new and old), where we update our new network (which is also our current network) using TD target from our old network. 
 \end{itemize}
-\subsection{Double DQN}
+\subsubsection{Double DQN}
 This improvement allows us to reap the benefits from double Q-learning, such as mitigating maximization bias.
 
 Our update function in this case becomes:
@@ -70,7 +62,7 @@ Our update function in this case becomes:
     \mathcal{L}_i(w_i) = E_{s, a, r, s'}[(r + \gamma\,Q(s', argmax_{a'}Q(s', a'; w_i); w^-) - Q(s, a; w_i))^2]
 \end{equation*}
 
-\subsection{Dueling Architecture}
+\subsubsection{Dueling Architecture}
 The dueling architecture introduces two separate streams sharing the same network, where one of them outputs $V(s)$, while the other outputs $A(s,a)$ for all actions (see figure \ref{fig:duelingarch}).
 
 \begin{wrapfigure}{r}{0.3\textwidth}
@@ -95,7 +87,7 @@ The only modification required is to the output of our network, where
     \label{fig:my_label}
 \end{figure}
 
-\subsection{Prioritized Experience Replay}
+\subsubsection{Prioritized Experience Replay}
 Vanilla DQN uniformly samples from the experience replay buffer, which is not ideal since it may not always pick the most valuable information to learn from (i.e. largest TD error $\delta$).
 
 PER solves this by assigning every sample with a priority value, $p$, where $p_i = |\delta_i| + \epsilon$, and the probability of picking sample $i$ is
@@ -107,18 +99,18 @@ To reduce bias caused by sampling high priority experiences more than lower prio
     w_i = (\frac{1}{N}\frac{1}{P(i)})^\beta
 \end{equation*}
 
-\section{Actor Critic Methods}
-Vanilla policy gradient methods like REINFORCE are low in bias, but it suffers from high variance since it cannot bootstrap from itself.
+\subsection{Actor Critic Methods}
+Using $R_t$ as seen in REINFORCE gives a true value estimation of $Q(s,a)$ and thus is low in bias, but episodic rollouts have a high variance, making its performance often poor.
 
-Value-function approximation methods like DQN have lower variance (from bootstrapping), but as a result introduces bias.
+Value-function approximation methods like DQN estimates $Q(s,a)$ with lower variance (from bootstrapping), but as a result introduces bias. 
 
-Merging both of these, our critic learns a value function approximator, while our actor uses policy gradient to learn a stochastic policy, such that $\Delta\theta = \alpha \nabla_\theta\, log\, \pi_\theta (s,a)\, Q_w(s,a)$, where $Q_w(s,a)$ is provided by the critic
-\subsection{Reducing variance with baseline}
-To reduce variance of $Q_w(s,a)$, we subtract a baseline function, $B(s)$, from $Q_w(s,a)$. Note that $B(s)$ must not be a function of action (i.e. $B(s,a)$) so that our expectation does not change (i.e. $E_{\pi_\theta}[\nabla_\theta\,log\pi_\theta(s,a)(Q_w(s,a)-B_w(s)] \equiv E_{\pi_\theta}[\nabla_\theta\,log\pi_\theta(s,a)Q_w(s,a)]$.
+Merging both of these, our critic learns a value function, while our actor learns a stochastic policy, such that $\Delta\theta = \alpha \nabla_\theta\, log\, \pi_\theta (s,a)\, Q_w(s,a)$, where $Q_w(s,a)$ is provided by the critic
+\subsubsection{Reducing variance with baseline}
+To reduce variance of $Q_w(s,a)$, we subtract a baseline function, $b(s)$, from $Q_w(s,a)$. Note that $b(s)$ must not be a function of action (i.e. $b(s,a)$) so that our expectation does not change (i.e. $E_{\pi_\theta}[\nabla_\theta\,log\pi_\theta(s,a)(Q_w(s,a)-b_w(s)] \equiv E_{\pi_\theta}[\nabla_\theta\,log\pi_\theta(s,a)Q_w(s,a)]$.
 
-A good baseline is the state value function $B(s)=V^\pi_\theta(s)$, such that $A^\pi_\theta(s,a) = Q^\pi_\theta(s,a) - V^\pi_\theta(s)$. Since $Q^\pi_\theta(s,a)=r+\gamma V(s')$, we realize that our advantage function can be our TD error $\delta$.
+A good baseline is the state value function $b(s)=V^\pi_\theta(s)$, such that $A^\pi_\theta(s,a) = Q^\pi_\theta(s,a) - V^\pi_\theta(s)$. Since $Q^\pi_\theta(s,a)=r+\gamma V(s')$, we realize that our advantage function can be our TD error $\delta$.
 
-\section{A3C \& A2C}
+\subsection{A3C \& A2C}
 Problems that A3C tries to solve:
 \begin{itemize}
     \item Highly correlated data (e.g. frames from video games) meant that neural networks suffer from high variance, and thus converges poorly.
@@ -127,7 +119,7 @@ Problems that A3C tries to solve:
 Key ideas that A3C introduces:
 \begin{itemize}
     \item Shared architecture between the actor and the critic
-    \item Update on fixed-length segments of experience (forward-view n-step TD($\lambda$) instead of MC)
+    \item Update on fixed-length segments of experience (forward-view n-step TD)
     \item Parallel worker threads, each with separate instances of the environment help decorrelate data
 \end{itemize}
 
@@ -138,12 +130,12 @@ Key ideas that A3C introduces:
     \label{fig:my_label}
 \end{figure}
 
-\subsection{Difference between A2C \& A3C}
+\subsubsection{Difference between A2C \& A3C}
 The major difference between them is that for A3C, worker threads update the main, shared network in an asynchronous fashion, while A2C waits for all actors to complete their segments, before updating the main network, by taking the average over all actors.
 
 A2C is shown to be able to utilize GPUs better (larger batch size), and prevents worker threads from using older versions of the main network.
 
-\section{PPO - Proximal Policy Optimization}
+\subsection{PPO - Proximal Policy Optimization}
 Similar to TRPO, PPO is motivated by the question - how can we take the largest improvement step on a policy using a data without causing performance collapse? PPO introduces 2 main ideas:
 \begin{enumerate}
     \item \textbf{Clipped Surrogate Objective}\\
@@ -167,6 +159,32 @@ Similar to TRPO, PPO is motivated by the question - how can we take the largest 
     \caption{PPO algorithm converges completely in Cartpole environment in 400 episodes, running on 4 separate processes.}
     \label{fig:my_label}
 \end{figure}
+
+\subsection{PPG - Phasic Policy Gradient}
+The advantage of sharing the same network for policy and value function is that features learnt by either of them will better optimize the other. This usually results in better generalization. However, due to competing objectives between the policy and value function, both of them are usually scaled differently. Regardless, there is still a risk that optimizing an objective may negatively affect optimization of the other. Another limitation is that it was assumed that the policy and value function can only tolerate the same number of sample reuse, which the authors of PPG showed is not necessarily true.
+
+\begin{wrapfigure}{r}{0.25\textwidth}
+    \centering
+    \includegraphics[width=0.25\textwidth]{images/ppg.png}
+    \caption{Separated policy and value network}
+\end{wrapfigure}
+
+In PPG, the authors separated the policy from the value function. An additional auxiliary head was added to the policy, which is used to distill features from the value function into the policy. Another key contribution from PPG is the discovery that value function is more tolerant towards higher level of sample reuse compared to the policy. 
+
+\section{Multiprocessing in Python}
+Running several parallel worker instances are crucial in actor-critic methods to decorrelate data and also speeds up training time rapidly (the A3C paper has stated that running in multiple parallel processes results to almost linear improvement).
+
+Since Python has a low-level Global Interpreter Lock (GIL), this makes multithreaded application in python more suitable towards I/O-bounded applications. Therefore, since running several worker instances is a CPU-bounded application, implementations of algorithms that require parallel worker instances have to utilize multiprocessing in python instead.
+
+\subsection{Python Multiprocessing Library}
+A3C and A2C was implemented using the Pytorch's multiprocessing library, which is a drop-in extension of python's native multiprocessing library. Several issues were ran into that made Pytorch's multiprocessing library less suitable for more complicated algorithms like PPO:
+\begin{itemize}
+    \item Lots of boilerplate code required for implementing various synchronization patterns. Barriers have to be manually implemented to ensure all workers in A2C are synchronized to the global network. Mutex for global variables are also implemented manually accessed by a single process at any time
+\end{itemize}
+\newpage
+\bibliographystyle{unsrt}
+\bibliography{references}
+
 \end{document}
 
-\section{PPG - Phasic Policy Gradient}
+
