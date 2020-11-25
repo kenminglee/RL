@@ -19,6 +19,8 @@ Deep RL:<br>
 6. PPO [[code](PPO/ppo.py) | [paper](https://arxiv.org/pdf/1707.06347.pdf)]
 7. PPG (Work in progress) [[code](PPG/ppg.py) | [paper](https://arxiv.org/pdf/2009.04416.pdf)]
 
+For a short summary for how the above algorithms work, refer to short writeup about algorithms implemented here [[pdf](writeups/understanding_ppg.pdf) | [tex](writeups/understanding_ppg.tex)]
+
 ## Commands to Run Scripts
 For all non-MPI enabled / algorithms that do not require parallel workers, run the scripts with <br>
 ``` python3 <filename>```
