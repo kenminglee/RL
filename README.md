@@ -1,8 +1,10 @@
 # Reproducing RL Algorithms
 
-Implementation of different RL algorithms in Pytorch.
+I have written a short writeup about the deep RL algorithms implemented here [[pdf](writeups/understanding_ppg.pdf) | [tex](writeups/understanding_ppg.tex)]
 
 ## Algorithms that were implemented:
+Code referred to below are implementations in this repository, paper refers to original publications of these algorithms.
+
 Tabular methods: <br>
 1. Value Iteration and Policy Iteration [[VI code](Model-based/value-iteration.py) | [PI code](Model-based/policy-iteration.py) | [paper](https://www.ics.uci.edu/~dechter/publications/r42a-mdp_report.pdf)]
 2. SARSA [[code](Model-free_Tabular_methods/Sarsa.py) | [paper](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.17.2539&rep=rep1&type=pdf)]
@@ -19,19 +21,6 @@ Deep RL:<br>
 6. PPO [[code](PPO/ppo.py) | [paper](https://arxiv.org/pdf/1707.06347.pdf)]
 7. PPG (Work in progress) [[code](PPG/ppg.py) | [paper](https://arxiv.org/pdf/2009.04416.pdf)]
 
-For a short summary for how the above algorithms work, refer to short writeup about algorithms implemented here [[pdf](writeups/understanding_ppg.pdf) | [tex](writeups/understanding_ppg.tex)]
-
-## Commands to Run Scripts
-For all non-MPI enabled / algorithms that do not require parallel workers, run the scripts with <br>
-``` python3 <filename>```
-
-Command to run MPI-enabled scripts <br>
-```mpiexec -n <num_processes> python <filename>.py```
-
-
-Command to run tensorboard-enabled scripts <br>
-```tensorboard --logdir=runs```, <br>
-where `runs` is the default folder that tensorboard writes data to
 
 ## Implementation Results
 These algorithms were all run on [OpenAI Gym's Cartpole environment](https://gym.openai.com/envs/CartPole-v0/)
@@ -47,7 +36,19 @@ These algorithms were all run on [OpenAI Gym's Cartpole environment](https://gym
 ### A3C
 <img src="A3C/cartpole-MC/cartpole_800eps.png" width="800">
 
-## Sequence of implementation:
+## Commands to Run Scripts
+For all non-MPI enabled / algorithms that do not require parallel workers, run the scripts with <br>
+``` python3 <filename>```
+
+Command to run MPI-enabled scripts <br>
+```mpiexec -n <num_processes> python <filename>.py```
+
+
+Command to run tensorboard-enabled scripts <br>
+```tensorboard --logdir=runs```, <br>
+where `runs` is the default folder that tensorboard writes data to
+
+<!-- ## Sequence of implementation:
 - Model-based: VI and PI
 - Model-free Tabular methods: Sarsa -> Q-learning -> Sarsa-lambda -> Watkins Q-learning
 - VPG (REINFORCE)
@@ -56,7 +57,7 @@ These algorithms were all run on [OpenAI Gym's Cartpole environment](https://gym
 - vanilla actor-critic: TD(0) -> MC -> n-step TD
 - A3C: MC -> n-step TD with multiprocessing
 - A2C: MC -> n-step TD with multiprocessing
-- A2C with MPI and tensorboard
+- A2C with MPI and tensorboard -->
 
 
 
