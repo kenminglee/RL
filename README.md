@@ -1,6 +1,6 @@
 # Reproducing RL Algorithms
 
-I have written a short writeup about the deep RL algorithms implemented here [[pdf](writeups/understanding_ppg.pdf) | [tex](writeups/understanding_ppg.tex)]
+A short writeup about the deep RL algorithms implemented here [[pdf](writeups/understanding_ppg.pdf) | [tex](writeups/understanding_ppg.tex)]
 
 ## Algorithms that were implemented:
 Code referred to below are implementations in this repository, paper refers to original publications of these algorithms.
