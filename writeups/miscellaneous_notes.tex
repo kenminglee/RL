@@ -11,7 +11,7 @@
 % Allows us to have clickable references. This should be the last package to be imported!
 \usepackage{hyperref}
 
-\title{Experimentation With RL Algorithms}
+\title{Miscellaneous RL Notes}
 \author{}
 \date{}
 
@@ -23,6 +23,64 @@
 \newpage
 
 \section{Introduction}
+The following notes were taken from Berkeley's CS 285 course. The key notion of RL is to learn decision making and control from experience.
+
+\subsection{Difference from supervised learning}
+\begin{itemize}
+    \item Supervised learning usually assumes independent, identically distributed data
+    \item Have ground truth outputs in training
+\end{itemize}
+In RL, data is \emph{not} iid, as previous outputs influence future inputs! And we don't have ground truth data, we only know if success or failed!
+
+\subsection{Why Deep RL?}
+Deep learning allows us to handle unstructured environments. It allows us to generalize to things that we have not previously seen before. Merging deep learning with RL allows us to perform end-to-end training, such that the optimal features are automatically learnt so that we do not have to manually extract features to learn from.
+
+Having an end-to-end training in RL meant that we do not have to separate recognition from control. For instance, we do not need a separate perception system to recognize that it is a tiger, then the control system tells us to run; rather this loop is closed with deep RL.
+
+In short, Deep = process complex sensory input (perception), RL = can choose complex actions (control)
+
+\subsection{Other forms of supervision}
+"A cheetah would not randomly maul a gazelle and realized that it obtained a reward, therefore it should continue hunting for gazelles". There must be more detailed guiding mechanisms:\\
+Learning from demonstrations.
+\begin{itemize}
+    \item Directly copying observed behaviour (imitation/curricular learning)
+    \item Inferring rewards from observed behaviour (inverse reinforcement learning)
+\end{itemize}
+Learning from observing the world
+\begin{itemize}
+    \item Learning to predict (model-based RL)
+    \item Unsupervised learning / self-supervised learning
+\end{itemize}
+Learning from other tasks
+\begin{itemize}
+    \item Transfer learning
+    \item Meta-learning: learning to learn
+\end{itemize}
+
+\subsection{Building intelligent machines}
+Learning is seen as the basis of intelligence - humans have to learn many tasks over their lifespan, such as driving a car
+
+Experiments have shown that neural-networks learn similar features as a brain. Perhaps it is not because neural-networks work like a brain, but rather because those features were the right features for the data, and any model powerful enough will eventually learn those optimal features.
+
+\subsubsection{What can deep learning and RL do well now?}
+\begin{itemize}
+    \item Acquire high deg. of proficiency in domains with simple, known rules - video games etc.
+    \item Learn simple skills with raw sensory inputs
+    \item Imitate human-provided expert behaviour
+\end{itemize}
+
+\subsubsection{What is still challenging?}
+\begin{itemize}
+    \item Humans can learn incredibly quickly 
+    \item Humans can reuse past knowledge - transfer-learning in deep RL is an open problem
+    \item Not clear what the reward function should be
+    \item Not clear what the role of prediction should be - planning, or trial-and-error, or both?
+\end{itemize}
+
+\section{Imitation Learning}
+
+\section{Basic Policy Optimization}
+$\tau$ is a sequences of states and actions, which is a set of trajectories.
 
 \newpage
 \bibliographystyle{unsrt}
