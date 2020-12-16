@@ -87,7 +87,7 @@ Also known as behavioural cloning, the core idea of imitation learning is to gen
 
 Often (but not always) insufficient by itself, due to distribution mismatch problem. For example, when the model makes a small mistake, it will find itself in a state that is a little different, and as a result it will make a bigger mistake. And this mistake compounds in a sequential decision-making setting, eventually the learnt policy will do something very different from the demonstrated behaviour.
 
-Another problem is that the loss function that we try to minimize, or the objective function that we try to maximize, is conditioned upon the distribution of the training data (since we are min/maximizing the expectation), not the actual policy! Therefore we are not exactly learning the right objectives.
+Another problem is that the loss function that we try to minimize, or the objective function that we try to maximize, is conditioned upon the distribution of the training data and not the actual policy! The distributional shift caused by off-policy training results in us not exactly learning the right objective.
 
 Sometimes works well:
 \begin{enumerate}
@@ -157,11 +157,29 @@ We first write $J(\theta)$ as an integral:
 \end{equation*}
 
 Taking the derivative,
-\begin{equation*}
+\begin{equation}\label{eq:derivative_obj_funct}
 \begin{split}
+    \nabla_\theta J(\theta) &= \int \nabla_\theta\, p_\theta(\tau)r(\tau)d\tau \\
+    &= \int p_\theta(\tau) \nabla_\theta\, log\, p_\theta (\tau) r(\tau) d\tau \\
+    &= E_{\tau \sim p_\theta(\tau)}\,[\nabla_\theta\, log\, p_\theta(\tau)r(\tau)]
+\end{split}
+\end{equation}
+Note that the identity $p_\theta(\tau) \nabla_\theta\, log\, p_\theta (\tau) = p_\theta(\tau) \frac{\nabla_\theta\, p_\theta(\tau)}{p_\theta(\tau)} = \nabla_\theta\, p_\theta(\tau)$ was used from line 1 to 2 in the equation above.
 
+Before proceeding, we take logs on both sides of the equation 
+\begin{equation}\label{eq:logptheta}
+\begin{split}
+    p_\theta(\tau) &= p(s_1)\: \Pi^T_{t=1}\,\pi_\theta(a_t|s_t)p(s_{t+1}|s_t, a_t) \\ log\, p_\theta(\tau) &= log\, p(s_1) + \sum_{t=1}^T\: log\,\pi_\theta(a_t|s_t) + log\, p(s_{t+1}|s_t, a_t) 
+\end{split}
+\end{equation}
+
+Substituting equation \ref{eq:logptheta} into \ref{eq:derivative_obj_funct}, we get \begin{equation*}
+\begin{split}
+    J(\theta) &= E_{\tau \sim p_\theta(\tau)}\,[\nabla_\theta\, (\sum_{t=1}^T log\,\pi_\theta(a_t|s_t))\,r(\tau)] \\
+    &\approx lala 
 \end{split}
 \end{equation*}
+Note that when we are substituting equation \ref{eq:logptheta} into \ref{eq:derivative_obj_funct}, derivative with respect to $\theta$ for $log\, p(s_1)$ and $log\, p(s_{t+1}|s_t, a_t)$ equates to 0 since they do not rely on $\theta$ and thus those terms disappear. 
 \newpage
 \bibliographystyle{unsrt}
 \bibliography{references}
