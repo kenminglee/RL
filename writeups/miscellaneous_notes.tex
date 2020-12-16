@@ -129,20 +129,39 @@ where
     \item $\tau$ is a sequences of states and actions, which is a set of trajectories $(s_1, a_1, ..., s_T, a_T)$
     \item $p_\theta(\tau) = p(s_1)\: \Pi^T_{t=1}\,\pi_\theta(a_t|s_t)p(s_{t+1}|s_t, a_t)$, which represents the \textbf{trajectory distribution}, can intuitively be understood as the true probability of experiencing trajectory $\tau$ under policy with param $\theta$
 \end{itemize}
-Note that we are taking the expected sum of rewards over trajectory $\tau$ with respect to the trajectory distribution $p_\theta(\tau)$ under policy $\pi$ with parameter $\theta$. And we take the expectation because of our limited knowledge of the world - i.e. we are only able to maximize the expectation over trajectories we have seen.
+Note that we are taking the expected sum of rewards over trajectory $\tau$ with respect to the trajectory distribution $p_\theta(\tau)$ under policy $\pi$ with parameter $\theta$. And we take the expectation because of our limited knowledge of the world - i.e. we are only able to maximize the expectation over trajectories we have seen. Intuitively, this also meant that the more trajectories we see, the more accurate our estimate will be - we will come back to this soon.
 
 It should be noted that Equation \ref{eq:rl_goal} can also be written as $\theta^* = argmax_\theta \; \sum_{t=1}^T\, E_{(s_t, a_t) \sim p_\theta(s_t, a_t)}[r(s_t, a_t)]$ for finite horizon case, and $\theta^* = argmax_\theta \; E_{(s_t, a_t) \sim p_\theta(s_t, a_t)}[r(s_t, a_t)]$ for infinite horizon case.
 
 \section{Policy Gradients}
-Recall the objective $\theta^* = argmax_\theta\, E_{\tau \sim p_\theta(\tau)}\,[\sum_t r(s_t, a_t)]$. Let $J(\theta) = E_{\tau \sim p_\theta(\tau)}\,[\sum_t r(s_t, a_t)]$, be our objective to maximize. 
+\subsection{Evaluating the objective}
+Recall the objective $\theta^* = argmax_\theta\, E_{\tau \sim p_\theta(\tau)}\,[\sum_t r(s_t, a_t)]$. Let $J(\theta) = E_{\tau \sim p_\theta(\tau)}\,[\sum_t r(s_t, a_t)]$ be our objective to maximize. Our goal is to find a set of param $\theta$ that maximizes our objective function, $J(\theta)$
 
-Since we do not know transition probabilities $p(s_{t+1}|s_t, a_t)$, nor do we know initial state distribution $p(s_1)$, we can estimate $J(\theta)$ by averaging over $N$ rollouts of our policy, which samples from the initial state distribution and the transition probabilities. This gives us: 
+To do so, we will need to be able to take the expected sum of rewards over trajectory $\tau$ with respect $p_\theta(\tau)$. We know that $p_\theta(\tau) = p(s_1)\: \Pi^T_{t=1}\,\pi_\theta(a_t|s_t)p(s_{t+1}|s_t, a_t)$, but since we do not know transition probabilities $p(s_{t+1}|s_t, a_t)$, nor do we know initial state distribution $p(s_1)$, we instead estimate $J(\theta)$ by averaging over $N$ rollouts of our policy, which samples from the initial state distribution and the transition probabilities. This gives us: 
 
 \begin{equation}\label{eq:objective_funct}
     J(\theta) \approx \frac{1}{N}\sum_i\sum_t r(s_{i,t}, a_{i,t})
 \end{equation}
 
+Going back to the point of getting better estimation with more trajectories, the larger our $N$ is, the better we will be able to estimate the value of $J(\theta)$.
 
+\subsection{Improving our policy}
+Now that we know how to estimate $J(\theta)$ without relying on any underlying understanding of the model of the world, we can now try to improve param $\theta$ by taking gradient ascent on $J(\theta)$ (we want to maximize $J(\theta)$, that is, by computing the gradient of our objective as such: $\nabla_\theta J(\theta)$.
+
+We first write $J(\theta)$ as an integral:
+\begin{equation*}
+\begin{split}
+        J(\theta) &= E_{\tau \sim p_\theta(\tau)}\,[\sum_t r(s_t, a_t)] \\ &= E_{\tau \sim p_\theta(\tau)}\,[r(\tau)] \\
+        &= \int p_\theta(\tau)r(\tau)d\tau
+\end{split}
+\end{equation*}
+
+Taking the derivative,
+\begin{equation*}
+\begin{split}
+
+\end{split}
+\end{equation*}
 \newpage
 \bibliographystyle{unsrt}
 \bibliography{references}
