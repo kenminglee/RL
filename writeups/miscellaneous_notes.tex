@@ -77,10 +77,71 @@ Experiments have shown that neural-networks learn similar features as a brain. P
     \item Not clear what the role of prediction should be - planning, or trial-and-error, or both?
 \end{itemize}
 
-\section{Imitation Learning}
+\subsection{Difference between state and observation}
+State is the representation of the current config of the system - its the true configuration of the state,  while the observation is what the agent actually observes. 
 
-\section{Basic Policy Optimization}
-$\tau$ is a sequences of states and actions, which is a set of trajectories.
+The state also satisfies the Markov property, which states that the future is conditionally independent from the past given the present. However, the observation might not be be sufficient to fully determine the future without observing the past - in other words, observations might not satisfy the Markov property. 
+
+\section{Imitation Learning}
+Also known as behavioural cloning, the core idea of imitation learning is to generate a set of training data and perform supervised learning on that data.
+
+Often (but not always) insufficient by itself, due to distribution mismatch problem. For example, when the model makes a small mistake, it will find itself in a state that is a little different, and as a result it will make a bigger mistake. And this mistake compounds in a sequential decision-making setting, eventually the learnt policy will do something very different from the demonstrated behaviour.
+
+Another problem is that the loss function that we try to minimize, or the objective function that we try to maximize, is conditioned upon the distribution of the training data (since we are min/maximizing the expectation), not the actual policy! Therefore we are not exactly learning the right objectives.
+
+Sometimes works well:
+\begin{enumerate}
+    \item Hacks (e.g. left/right images)\\
+    Nvidia managed to use behavioural cloning to drive an autonomous vehicle in 2016 because of a slight modification, and that is having 3 cameras at the front - one pointing to the left, one pointing in the center, and one pointing to the right. The center camera is supervised by the steering angle of the driver, the left camera is supervised by the steering angle a little to the right of what the driver did, vice versa for the right camera. This mitigates the drifting problem because the left and right camera are essentially teaching the policy how to correct those small mistakes, preventing them from accumulating!
+    \item Samples from a stable trajectory distribution
+    \item Add more \textbf{on-policy} data, e.g. using Dagger
+    \item Better models that fit more accurately
+\end{enumerate}
+
+Another idea for imitation learning: 
+\begin{enumerate}
+    \item Start with random policy
+    \item Collect data with random goals
+    \item Treat this trajectory as "demostrations" for the goals that were reached (aka the terminal states become our goals!)
+    \item Use this to improve the policy - our policy is now conditioned not only on the action, but also our goal, $\pi_\theta(s_t | a_t, p)$, where $p$ is the random goal we reached
+    \item repeat
+\end{enumerate}
+% \subsection{Distributional Shift}
+% Revisiting the problem of drifting policy, the reason why this is observed is because when we run our policy, the distribution over observations that we see is different from the distribution of our training data, which is because the policy takes different actions! $p_{data}(o_t) != p_{\pi_\theta}(o_t)$
+
+% It's really hard to make the policy perfect such that $p_{\pi_\theta}(o_t)$ has the same distribution as training data, while preventing our policy from overfitting on the human data (training data).
+
+% Reasons why it is very hard for policy to perfectly follow the expert's demonstration:
+% \begin{enumerate}
+%     \item Non-Markovian behaviour
+%     If we see the same thing twice, we should behave the exact same way. This is often very unnatural for human demonstrators, because the actions we take often depend on events that occurred in the past.
+%     \item Multimodal behaviour
+%     When we see an obstacle, we may sometime choose to go left, other times we may choose to go right to go around the obstacle.
+% \end{enumerate}
+
+\section{RL Intro}
+The goal of reinforcement learning is to find the optimal parameter $\theta^*$, such that 
+\begin{equation}\label{eq:rl_goal}
+    \theta^* = argmax_\theta\, E_{\tau \sim p_\theta(\tau)}\,[\sum_t r(s_t, a_t)]
+\end{equation}
+where
+\begin{itemize}
+    \item $\tau$ is a sequences of states and actions, which is a set of trajectories $(s_1, a_1, ..., s_T, a_T)$
+    \item $p_\theta(\tau) = p(s_1)\: \Pi^T_{t=1}\,\pi_\theta(a_t|s_t)p(s_{t+1}|s_t, a_t)$, which represents the \textbf{trajectory distribution}, can intuitively be understood as the true probability of experiencing trajectory $\tau$ under policy with param $\theta$
+\end{itemize}
+Note that we are taking the expected sum of rewards over trajectory $\tau$ with respect to the trajectory distribution $p_\theta(\tau)$ under policy $\pi$ with parameter $\theta$. And we take the expectation because of our limited knowledge of the world - i.e. we are only able to maximize the expectation over trajectories we have seen.
+
+It should be noted that Equation \ref{eq:rl_goal} can also be written as $\theta^* = argmax_\theta \; \sum_{t=1}^T\, E_{(s_t, a_t) \sim p_\theta(s_t, a_t)}[r(s_t, a_t)]$ for finite horizon case, and $\theta^* = argmax_\theta \; E_{(s_t, a_t) \sim p_\theta(s_t, a_t)}[r(s_t, a_t)]$ for infinite horizon case.
+
+\section{Policy Gradients}
+Recall the objective $\theta^* = argmax_\theta\, E_{\tau \sim p_\theta(\tau)}\,[\sum_t r(s_t, a_t)]$. Let $J(\theta) = E_{\tau \sim p_\theta(\tau)}\,[\sum_t r(s_t, a_t)]$, be our objective to maximize. 
+
+Since we do not know transition probabilities $p(s_{t+1}|s_t, a_t)$, nor do we know initial state distribution $p(s_1)$, we can estimate $J(\theta)$ by averaging over $N$ rollouts of our policy, which samples from the initial state distribution and the transition probabilities. This gives us: 
+
+\begin{equation}\label{eq:objective_funct}
+    J(\theta) \approx \frac{1}{N}\sum_i\sum_t r(s_{i,t}, a_{i,t})
+\end{equation}
+
 
 \newpage
 \bibliographystyle{unsrt}

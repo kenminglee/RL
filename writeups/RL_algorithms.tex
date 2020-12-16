@@ -11,7 +11,7 @@
 % Allows us to have clickable references. This should be the last package to be imported!
 \usepackage{hyperref}
 
-\title{Experimentation With RL Algorithms}
+\title{Notes on RL Algorithms}
 \author{}
 \date{}
 
@@ -171,6 +171,44 @@ The advantage of sharing the same network for policy and value function is that 
 
 In PPG, the authors separated the policy from the value function. An additional auxiliary head was added to the policy, which is used to distill features from the value function into the policy. Another key contribution from PPG is the discovery that value function is more tolerant towards higher level of sample reuse compared to the policy. 
 
+\section{Notes on Key Papers}
+\subsection{CURL: Contrastive Unsupervised Representations for Reinforcement Learning}
+paper: https://arxiv.org/pdf/2004.04136.pdf
+
+Main motivation behind this paper is that sample efficiency of Deep RL algorithms have significant room for improvement. This is especially true for the real world, where agents are bound to work within limitation of physics.
+
+Sample inefficiency of deep RL algorithms can be broadly classified into the two streams of research:
+\begin{enumerate}
+    \item Auxiliary tasks on the agent's sensory observations
+    \item World models that predict the future
+\end{enumerate}
+
+Main hypothesis of the paper: \emph{If an agent learns a useful semantic representation from high dimensional observations, control algorithms built on top of those representations should be significantly more data-efficient}. CURL proposes a simple framework that integrates contrastive learning with model-free RL.
+
+\subsection{DrQ: Data-regularized Q}
+paper: https://arxiv.org/pdf/2004.13649.pdf
+
+Main motivation behind this paper is that simultaneously training a convolutional encode alongside policy network is challenging given limited environment interaction, strong correlation between samples and sparse reward signal.
+
+Main contribution of paper: 
+\begin{enumerate}
+    \item Using standard image transformations to peturb input observations greatly reduces over-fitting
+    \item Regularizing Q-function learned by critic so that different transformations of the same input image have similar Q-function values.
+\end{enumerate}
+
+\subsection{RAD: Reinforcement Learning with Augmented Data}
+paper: https://arxiv.org/pdf/2004.14990.pdf
+
+Contributions of paper: By incorporating data augmentations method on input observations for RL pipelines, it allows the agent to improve on two key capabilities
+\begin{enumerate}
+    \item data-efficiency - more data can be generated per rollout as a result of augmentation
+    \item generalization - as a result of training on more diversely augmented samples
+\end{enumerate}
+The two new data augmentations introduced were:
+\begin{enumerate}
+    \item \textbf{random translation} for image-based input
+    \item \textbf{random amplitude scaling} for proprioseptive input
+\end{enumerate}
 \section{Multiprocessing in Python}
 Running several parallel worker instances are crucial in actor-critic methods to decorrelate data and also speeds up training time rapidly (the A3C paper has stated that running in multiple parallel processes results to almost linear improvement).
 
