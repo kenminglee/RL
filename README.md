@@ -1,5 +1,7 @@
 # Reproducing RL Algorithms
 
+> `dev` branch may contain work in progress. For stable code, checkout `master` branch instead.  
+
 A short writeup about the deep RL algorithms implemented here [[pdf](writeups/understanding_ppg.pdf) | [tex](writeups/understanding_ppg.tex)]
 
 ## Algorithms that were implemented:
