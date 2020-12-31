@@ -9,17 +9,23 @@ from base_agent import base_agent
 import matplotlib.pyplot as plt
 
 
-class DDQN(nn.Module):
-    def __init__(self, obs_dim, n_actions):
-        super(DDQN, self).__init__()
-        self.first_layer = nn.Linear(obs_dim, 128)
-        self.second_layer = nn.Linear(128, 64)
-        self.output = nn.Linear(64, n_actions)
-    
+class DuelingDDQN(nn.Module):
+    # Dueling architecture https://arxiv.org/pdf/1511.06581.pdf
+    def __init__(self, input_size, n_actions):
+        super(DuelingDDQN, self).__init__()
+        self.n_actions = n_actions
+        self.fc1 = nn.Linear(input_size, 128)
+        self.val_input = nn.Linear(128, 64)
+        self.adv_input = nn.Linear(128, 64)
+        self.adv_output = nn.Linear(64, n_actions)
+        self.val_output = nn.Linear(64, 1)
+
     def forward(self, x):
-        x = F.relu(self.first_layer(x))
-        x = F.relu(self.second_layer(x))
-        return self.output(x)
+        x = F.relu(self.fc1(x))
+        val = self.val_output(F.relu(self.val_input(x)))
+        adv = self.adv_output(F.relu(self.adv_input(x)))
+        output = val + (adv - torch.mean(adv, dim=1, keepdim=True))
+        return output
 
 
 class Observations:
@@ -54,19 +60,19 @@ class Agent(base_agent):
         assert er_buf_size>batch_size
         self.device = torch.device(
             'cuda' if torch.cuda.is_available() else 'cpu')
-        self.obs = Observations(obs_dim, er_buf_size)
+        self.obs = Observations(obs_dim, er_buf_size) # if buf size is too large performance drops - likely because we will be reusing too much old, suboptimal data
         self.n_actions = n_actions
-        self.target_network = DDQN(obs_dim, n_actions).to(device=self.device)
-        self.policy_network = DDQN(obs_dim, n_actions).to(device=self.device)
+        self.target_network = DuelingDDQN(obs_dim, n_actions).to(device=self.device)
+        self.policy_network = DuelingDDQN(obs_dim, n_actions).to(device=self.device)
         self.epsilon = epsilon
         self.gamma = gamma
-        self.batch_size = batch_size
+        self.batch_size = batch_size # performance collapse if batch size is too large
         self.buf_large_enough = False # only start training when buffer size > batch_size
         self.optimizer = optim.Adam(self.policy_network.parameters(), lr=lr)
 
     def choose_action(self, s):
         if np.random.uniform() >= self.epsilon:
-            output = self.policy_network(torch.tensor(s, dtype=torch.float32, device=self.device))
+            output = self.policy_network(torch.tensor(s, dtype=torch.float32, device=self.device).unsqueeze(0))
             return torch.argmax(output).tolist()
         else: 
             return np.random.randint(self.n_actions)
@@ -74,7 +80,7 @@ class Agent(base_agent):
     def learn(self, s, a, r, s_, done):
         self.obs.append(s, a, r, s_ if not done else None)
         # check for none next state: 
-        if (self.buf_large_enough or self.obs.pointer>self.batch_size) and done:
+        if (self.buf_large_enough or self.obs.pointer>self.batch_size) and done: # performance collapse if update on every step
             self.buf_large_enough = True
             self.update()
         return self.choose_action(s_)
@@ -95,7 +101,7 @@ class Agent(base_agent):
         max_q_[not_terminal_mask] = self.target_network(non_terminal_s_).gather(1, policy_argmax_a.unsqueeze(1)).squeeze(1).detach()
         td_target = r + self.gamma * max_q_
         loss = F.mse_loss(q, td_target) # poor performance for Huber loss - why?
-
+    
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
@@ -104,6 +110,7 @@ class Agent(base_agent):
 
 def run_cartpole_experiment(display_plot=True, plot_name=None):
     env = gym.make("CartPole-v0")
+    # env = gym.make("LunarLander-v2")
     agent = Agent(env.observation_space.shape[0], env.action_space.n)
     r_per_eps = []
     mean_per_100_eps = []
