@@ -50,7 +50,7 @@ class Observations:
 
 
 class Agent(base_agent):
-    def __init__(self, obs_dim, n_actions, er_buf_size=int(1e6), batch_size=32, lr=1e-3, gamma=0.9, epsilon=0.1):
+    def __init__(self, obs_dim, n_actions, er_buf_size=int(1e5), batch_size=64, lr=1e-3, gamma=0.9, epsilon=0.1):
         assert er_buf_size>batch_size
         self.device = torch.device(
             'cuda' if torch.cuda.is_available() else 'cpu')
@@ -74,7 +74,7 @@ class Agent(base_agent):
     def learn(self, s, a, r, s_, done):
         self.obs.append(s, a, r, s_ if not done else None)
         # check for none next state: 
-        if self.buf_large_enough or self.obs.pointer>self.batch_size:
+        if (self.buf_large_enough or self.obs.pointer>self.batch_size) and done:
             self.buf_large_enough = True
             self.update()
         return self.choose_action(s_)
@@ -86,11 +86,13 @@ class Agent(base_agent):
         s = torch.tensor(s, device=self.device)
         a = torch.tensor(a, device=self.device, dtype=torch.int64)
         r = torch.tensor(r, device=self.device)
+        non_terminal_s_ = torch.tensor(s_[not_terminal_mask], device=self.device)
 
         q = self.policy_network(s).gather(1, a.unsqueeze(1)).squeeze(1)
+        policy_argmax_a = self.policy_network(non_terminal_s_).argmax(dim=1)
+        
         max_q_ = torch.zeros_like(r, device=self.device)
-        max_q_[not_terminal_mask], _ = self.target_network(torch.tensor(s_[not_terminal_mask], device=self.device)).max(dim=1)
-
+        max_q_[not_terminal_mask] = self.target_network(non_terminal_s_).gather(1, policy_argmax_a.unsqueeze(1)).squeeze(1).detach()
         td_target = r + self.gamma * max_q_
         loss = F.mse_loss(q, td_target) # poor performance for Huber loss - why?
 
