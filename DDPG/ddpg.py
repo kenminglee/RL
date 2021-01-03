@@ -68,7 +68,7 @@ class Observations:
 
 
 class Agent(base_agent):
-    def __init__(self, obs_dim, act_dim, act_limit, er_buf_size=int(1e5), batch_size=64, q_lr=1e-3, pi_lr=1e-3, gamma=0.9, act_noise=0.1, polyak=0.995, start_steps=10000):
+    def __init__(self, obs_dim, act_dim, act_limit, er_buf_size=int(1e6), batch_size=100, q_lr=1e-3, pi_lr=1e-3, gamma=0.9, act_noise=0.1, polyak=0.995, start_steps=10000):
         assert er_buf_size>batch_size
         self.device = torch.device(
             'cuda' if torch.cuda.is_available() else 'cpu')
@@ -88,14 +88,14 @@ class Agent(base_agent):
         self.q_optimizer = optim.Adam(self.q.parameters(), lr=q_lr)
 
     def choose_action(self, s, noise_scale=0):
-        a = self.act(torch.tensor(s, dtype=torch.float32, device=self.device)).detach().to(device=torch.device('cpu'))
+        a = self.act(torch.tensor(s, dtype=torch.float32, device=self.device)).cpu()
         a += noise_scale*torch.rand(self.act_dim)
-        return torch.clip(a, -self.act_limit, self.act_limit)
+        return torch.clip(a, -self.act_limit, self.act_limit).tolist()
     
     def learn(self, s, a, r, s_, done):
         self.obs.append(s, a, r, s_ if not done else None)
         # check for none next state: 
-        if (self.buf_large_enough or self.obs.pointer>self.batch_size) and done: # performance collapse if update on every step
+        if (self.buf_large_enough or self.obs.pointer>self.batch_size): # performance collapse if update on every step
             self.buf_large_enough = True
             self.update()
         return self.choose_action(s_)
@@ -151,8 +151,8 @@ class Agent(base_agent):
 
 
 def run_cartpole_experiment(display_plot=True, plot_name=None):
-    env = gym.make("MountainCarContinuous-v0")
-    # env = gym.make("LunarLander-v2")
+    # env = gym.make("MountainCarContinuous-v0")
+    env = gym.make("Pendulum-v0")
     agent = Agent(env.observation_space.shape[0], env.action_space.shape[0], env.action_space.high[0])
     r_per_eps = []
     mean_per_100_eps = []
@@ -177,9 +177,9 @@ def run_cartpole_experiment(display_plot=True, plot_name=None):
                     mean = np.mean(r_per_eps[-100:])
                     mean_per_100_eps.append(mean)
                     print('Average reward for past 100 episode', mean, 'in episode', eps)
-                if total_r_in_eps>=90:
-                    print(f'Solved MountainCarContinuous in episode {eps}')
-                    solved = True
+                    if mean>=-180:
+                        print(f'Solved* Pendulum in episode {eps}')
+                        solved = True
                 break
     
     r_per_eps_x = [i+1 for i in range(len(r_per_eps))]
