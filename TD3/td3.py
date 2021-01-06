@@ -157,7 +157,7 @@ class Agent:
             loss_pi = -q_policy.mean()
 
             # Freeze q1 network since we only want to optimize policy here
-            for p in self.q_params.parameters():
+            for p in self.q_params:
                 p.requires_grad = False
             
             # Optimize policy
@@ -166,7 +166,7 @@ class Agent:
             self.pi_optimizer.step()
 
             # Unfreeze q1 network after we are done optimizing policy 
-            for p in self.q_params.parameters():
+            for p in self.q_params:
                 p.requires_grad = True
 
         update_q_funct()
@@ -181,7 +181,7 @@ class Agent:
 
 
 def run_cartpole_experiment(display_plot=True, plot_name=None):
-    # env = gym.make("MountainCarContinuous-v0")
+    # env = gym.make("LunarLanderContinuous-v2")
     env = gym.make("Pendulum-v0")
     agent = Agent(env.observation_space.shape[0], env.action_space.shape[0], env.action_space.high[0])
     r_per_eps = []
