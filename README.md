@@ -52,6 +52,9 @@ Mean reward over past 100 episode of -169.5 after 1000 episodes
     <figcaption>Mean reward over past 100 episode of -169.5 after 1000 episodes</figcaption>
 </figure> -->
 
+#### TD3
+Mean reward over past 100 episode of -174.8 after 1200 episodes. Notice the lower variance compared to DDPG above.
+<img src="TD3/td3_pendulum.png" width="800"/>
 
 ## Commands to Run Scripts
 For all non-MPI enabled / algorithms that do not require parallel workers, run the scripts with <br>
