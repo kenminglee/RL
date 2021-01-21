@@ -87,11 +87,14 @@ class Agent(base_agent):
         self.pi_optimizer = optim.Adam(self.act.parameters(), lr=pi_lr)
         self.q_optimizer = optim.Adam(self.q.parameters(), lr=q_lr)
 
-    def choose_action(self, s, noise_scale=0):
+    def choose_action(self, s, noise_scale=0.1):
         a = self.act(torch.tensor(s, dtype=torch.float32, device=self.device)).cpu()
         a += noise_scale*torch.rand(self.act_dim)
         return torch.clip(a, -self.act_limit, self.act_limit).tolist()
     
+    def test_phase_choose_action(self, s):
+        return self.choose_action(s, noise_scale=0)
+
     def learn(self, s, a, r, s_, done):
         self.obs.append(s, a, r, s_ if not done else None)
         # check for none next state: 
@@ -152,7 +155,7 @@ class Agent(base_agent):
 
 def run_cartpole_experiment(display_plot=True, plot_name=None):
     # env = gym.make("MountainCarContinuous-v0")
-    env = gym.make("Pendulum-v0")
+    env = gym.make("BipedalWalker-v3")
     agent = Agent(env.observation_space.shape[0], env.action_space.shape[0], env.action_space.high[0])
     r_per_eps = []
     mean_per_100_eps = []
@@ -161,7 +164,7 @@ def run_cartpole_experiment(display_plot=True, plot_name=None):
     while not solved:
         eps += 1
         s = env.reset()  
-        a = agent.choose_action(s, noise_scale=0.1)
+        a = agent.choose_action(s)
         total_r_in_eps = 0
         while True:
             # take action, observe s' and r
