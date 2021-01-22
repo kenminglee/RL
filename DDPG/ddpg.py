@@ -154,8 +154,8 @@ class Agent(base_agent):
 
 
 def run_cartpole_experiment(display_plot=True, plot_name=None):
-    # env = gym.make("MountainCarContinuous-v0")
-    env = gym.make("BipedalWalker-v3")
+    env = gym.make("Pendulum-v0")
+    # env = gym.make("BipedalWalker-v3")
     agent = Agent(env.observation_space.shape[0], env.action_space.shape[0], env.action_space.high[0])
     r_per_eps = []
     mean_per_100_eps = []
